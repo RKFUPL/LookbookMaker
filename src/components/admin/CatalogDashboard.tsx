@@ -13,6 +13,8 @@ const tabs = [
   { value: "processing", label: "Processing" },
   { value: "ready", label: "Ready" },
   { value: "published", label: "Published" },
+  { value: "processing_failed", label: "Processing failed" },
+  { value: "storage_failed", label: "Storage failed" },
   { value: "archived", label: "Archived" },
 ];
 

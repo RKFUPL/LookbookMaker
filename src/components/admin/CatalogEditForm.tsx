@@ -6,6 +6,10 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Check, Clipboard, ExternalLink, LoaderCircle, RotateCcw, Send, Unlink } from "lucide-react";
 import type { CatalogDto } from "@/types/catalog";
 
+function isProcessingFailure(status: string) {
+  return ["error", "processing_failed", "storage_failed"].includes(status);
+}
+
 async function request(url: string, options: RequestInit = {}) {
   const response = await fetch(url, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) }, cache: "no-store" });
   const body = await response.json();
@@ -36,7 +40,7 @@ export function CatalogEditForm({ id }: { id: string }) {
       const current: CatalogDto = (await request(`/api/catalogs/${id}`)).catalog;
       setCatalog(current);
       if (current.status === "ready" || current.status === "published") return;
-      if (current.status === "error") throw new Error(current.processingError || "Catalog processing failed.");
+      if (isProcessingFailure(current.status)) throw new Error(current.processingError || "Catalog processing failed.");
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
     }
     throw new Error("Processing is continuing in the background. Refresh this page shortly.");
@@ -50,7 +54,7 @@ export function CatalogEditForm({ id }: { id: string }) {
       const sourceChanged = sourceUrl !== (catalog?.sourceUrl || "");
       const body = await request(`/api/catalogs/${id}`, { method: "PUT", body: JSON.stringify({
         title: data.get("title"), collection: data.get("collection"), season: data.get("season"), description: data.get("description"),
-        sourceUrl,
+        ...(sourceUrl || catalog?.sourceType !== "uploaded" ? { sourceUrl } : {}),
         allowDownload: data.get("allowDownload") === "on", showBackButton: data.get("showBackButton") === "on",
       }) });
       setCatalog(body.catalog);
@@ -78,7 +82,8 @@ export function CatalogEditForm({ id }: { id: string }) {
           {catalog.pageCount > 0 && <Link className="btn btn-secondary" href={`/admin/catalogs/${id}/preview`}>Preview</Link>}
           {catalog.status === "ready" && <button className="btn btn-primary" type="button" onClick={() => change("publish")} disabled={busy}><Send size={14} /> Publish</button>}
           {catalog.status === "published" && <><button className="btn btn-secondary" type="button" onClick={() => change("unpublish")} disabled={busy}><Unlink size={14} /> Unpublish</button><a className="btn btn-primary" href={catalog.publicUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Open public link</a></>}
-          {catalog.status === "error" && <button className="btn btn-primary" type="button" onClick={() => change("process")} disabled={busy}><RotateCcw size={14} /> Retry processing</button>}
+          {isProcessingFailure(catalog.status) && <button className="btn btn-primary" type="button" onClick={() => change("process")} disabled={busy}><RotateCcw size={14} /> Retry processing</button>}
+          {catalog.pageCount > 0 && !["processing", "uploading"].includes(catalog.status) && !isProcessingFailure(catalog.status) && <button className="btn btn-secondary" type="button" onClick={() => change("process")} disabled={busy}><RotateCcw size={14} /> Reprocess catalog</button>}
         </div>
       </div>
       {error && <div className="error-box" style={{ marginBottom: 18 }}>{error}</div>}
@@ -90,7 +95,7 @@ export function CatalogEditForm({ id }: { id: string }) {
             <div className="field"><label htmlFor="collection">Collection</label><input className="input" id="collection" name="collection" defaultValue={catalog.collection} required maxLength={120} /></div>
             <div className="field"><label htmlFor="season">Season / year</label><input className="input" id="season" name="season" defaultValue={catalog.season} required maxLength={80} /></div>
             <div className="field wide"><label htmlFor="description">Description</label><textarea className="textarea" id="description" name="description" defaultValue={catalog.description} maxLength={2000} /></div>
-            <div className="field wide"><label htmlFor="sourceUrl">PDF storage URL</label><input className="input" id="sourceUrl" name="sourceUrl" type="url" defaultValue={catalog.sourceUrl} required placeholder="https://example.com/catalog.pdf" /><span className="field-hint">Changing this URL fetches the new PDF and rebuilds every optimized page.</span></div>
+            <div className="field wide"><label htmlFor="sourceUrl">PDF source URL</label><input className="input" id="sourceUrl" name="sourceUrl" type="url" defaultValue={catalog.sourceUrl} required={catalog.sourceType !== "uploaded"} placeholder="https://example.com/catalog.pdf" /><span className="field-hint">Changing this URL fetches the new PDF. Uploaded catalogs can keep their existing stored source.</span></div>
             <label className="check-row wide"><input type="checkbox" name="allowDownload" defaultChecked={catalog.allowDownload} /><span><strong>Allow original PDF download</strong><br /><span className="field-hint">Downloads use five-minute signed URLs and are tracked.</span></span></label>
             <label className="check-row wide"><input type="checkbox" name="showBackButton" defaultChecked={catalog.showBackButton} /><span><strong>Show viewer back button</strong></span></label>
           </div>
@@ -103,8 +108,8 @@ export function CatalogEditForm({ id }: { id: string }) {
             <div><span className="field-hint">Public address</span><div style={{ marginTop: 4, overflowWrap: "anywhere" }}>{catalog.publicUrl}</div></div>
             <div style={{ display: "flex", gap: 9 }}><button className="btn btn-secondary" type="button" onClick={async () => navigator.clipboard.writeText(`${window.location.origin}${catalog.publicUrl}`)}><Clipboard size={13} /> Copy link</button></div>
             <div><span className="field-hint">Optimized pages</span><div style={{ marginTop: 4 }}>{catalog.pageCount} pages</div></div>
-            <div><span className="field-hint">PDF source</span><div style={{ marginTop: 4, overflowWrap: "anywhere" }}>{catalog.sourceUrl ? <a href={catalog.sourceUrl} target="_blank" rel="noreferrer">{catalog.sourceUrl}</a> : "Not configured"}</div></div>
-            <div><span className="field-hint">Stored copy</span><div style={{ marginTop: 4 }}>{catalog.originalFilename || "Not fetched"}{catalog.sourceSize ? ` · ${(catalog.sourceSize / 1024 / 1024).toFixed(1)} MB` : ""}</div></div>
+            <div><span className="field-hint">Source PDF</span><div style={{ marginTop: 4, overflowWrap: "anywhere" }}>{catalog.sourceUrl ? <a href={catalog.sourceUrl} target="_blank" rel="noreferrer">Open source PDF</a> : "Not configured"}</div></div>
+            <div><span className="field-hint">Source storage</span><div style={{ marginTop: 4 }}>{catalog.sourceType === "external_url" ? "External URL; temporary processing copy only" : catalog.originalFilename || "Not fetched"}{catalog.sourceSize ? ` · ${(catalog.sourceSize / 1024 / 1024).toFixed(1)} MB` : ""}</div></div>
             <div><span className="field-hint">Audience</span><div style={{ marginTop: 4 }}>{catalog.views.toLocaleString()} catalog views</div></div>
             {catalog.processingMessage && <div><span className="field-hint">Processing</span><div style={{ marginTop: 4 }}>{catalog.processingMessage}</div></div>}
           </div>

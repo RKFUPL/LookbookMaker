@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     const page = Math.max(1, Number(searchParams.get("page") || 1));
     const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit") || 20)));
     const filter: Record<string, unknown> = {};
-    if (status && ["draft", "uploading", "processing", "ready", "published", "archived", "error"].includes(status)) {
+    if (status && ["draft", "uploading", "processing", "ready", "published", "archived", "error", "processing_failed", "storage_failed"].includes(status)) {
       filter.status = status;
     }
     if (query) filter.$text = { $search: query.slice(0, 100) };
@@ -43,10 +43,12 @@ export async function POST(request: Request) {
   try {
     const staff = await requireStaff();
     const input = catalogCreateSchema.parse(await readJson(request));
-    try {
-      await assertSafeRemoteUrl(input.sourceUrl);
-    } catch (reason) {
-      throw new ApiError(400, reason instanceof Error ? reason.message : "The PDF source URL is not allowed.", "INVALID_SOURCE_URL");
+    if (input.sourceUrl) {
+      try {
+        await assertSafeRemoteUrl(input.sourceUrl);
+      } catch (reason) {
+        throw new ApiError(400, reason instanceof Error ? reason.message : "The PDF source URL is not allowed.", "INVALID_SOURCE_URL");
+      }
     }
     await connectDb();
     const slug = await uniqueSlug(`${input.title} ${input.season}`);
@@ -54,14 +56,15 @@ export async function POST(request: Request) {
     const catalog = await Catalog.create({
       ...details,
       collectionName: collection,
+      ...(input.sourceUrl ? { sourcePdfUrl: input.sourceUrl, sourceType: "external_url" } : {}),
       slug,
-      status: "processing",
-      processingProgress: 1,
-      processingMessage: "Queued to fetch the source PDF...",
+      status: input.sourceUrl ? "processing" : "draft",
+      processingProgress: input.sourceUrl ? 1 : 0,
+      processingMessage: input.sourceUrl ? "Queued to fetch the source PDF..." : "",
       createdBy: staff.userId,
       updatedBy: staff.userId,
     });
-    await ProcessingJob.create({ catalogId: catalog._id, status: "queued", availableAt: new Date() });
+    if (input.sourceUrl) await ProcessingJob.create({ catalogId: catalog._id, status: "queued", availableAt: new Date() });
     return NextResponse.json({ catalog: await serializeCatalog(catalog) }, { status: 201 });
   } catch (error) {
     return apiError(error);

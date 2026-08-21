@@ -30,7 +30,7 @@ function blockedAddress(address: string) {
 
 export async function assertSafeRemoteUrl(value: string) {
   const parsed = new URL(value);
-  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error("The PDF source must use http or https.");
+  if (parsed.protocol !== "https:") throw new Error("The PDF source must use HTTPS.");
   if (parsed.username || parsed.password) throw new Error("The PDF source URL cannot contain credentials.");
   const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (!hostname || hostname === "localhost" || hostname.endsWith(".local") || hostname.endsWith(".internal") || blockedAddress(hostname)) {
@@ -57,13 +57,17 @@ export async function downloadRemotePdf(sourceUrl: string, destination: string, 
       continue;
     }
     if (!response.ok) throw new Error(`The PDF source returned HTTP ${response.status}.`);
+    const contentType = (response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
+    if (contentType && !["application/pdf", "application/octet-stream", "binary/octet-stream"].includes(contentType)) {
+      throw new Error("The PDF source did not return a PDF.");
+    }
     const announcedSize = Number(response.headers.get("content-length") || 0);
     if (announcedSize > maxBytes) throw new Error(`The PDF exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`);
     if (!response.body) throw new Error("The PDF source returned an empty response.");
     await pipeline(Readable.fromWeb(response.body as never), createWriteStream(destination));
     const details = await stat(destination);
     if (details.size > maxBytes) throw new Error(`The PDF exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`);
-    return { size: details.size, contentType: response.headers.get("content-type") || "application/pdf", finalUrl: currentUrl };
+    return { size: details.size, contentType: contentType || "application/pdf", finalUrl: currentUrl };
   }
   throw new Error("Unable to download the PDF source.");
 }

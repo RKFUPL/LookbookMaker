@@ -50,12 +50,14 @@ export async function PUT(request: Request, context: Context) {
     const { collection, sourceUrl, status, ...details } = input;
     Object.assign(catalog, details, {
       ...(collection ? { collectionName: collection } : {}),
-      ...(sourceUrl !== undefined ? { sourceUrl } : {}),
+      ...(sourceUrl !== undefined ? { sourceUrl, sourcePdfUrl: sourceUrl, sourceType: "external_url" } : {}),
       ...(status ? { status } : {}),
       updatedBy: staff.userId,
     });
     if (sourceChanged) {
       catalog.sourceKey = undefined;
+      catalog.sourcePdfUrl = sourceUrl;
+      catalog.sourceType = "external_url";
       catalog.sourceSize = undefined;
       catalog.sourceEtag = undefined;
       catalog.sourceContentType = undefined;

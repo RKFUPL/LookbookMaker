@@ -3,10 +3,14 @@
 
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
-import { Check, ImagePlus, LoaderCircle, RotateCcw, X } from "lucide-react";
+import { Check, ImagePlus, LoaderCircle, RotateCcw, Upload, X } from "lucide-react";
 import type { CatalogDto } from "@/types/catalog";
 
 type Stage = "idle" | "processing" | "ready" | "error";
+
+function isProcessingFailure(status: string) {
+  return ["error", "processing_failed", "storage_failed"].includes(status);
+}
 
 async function jsonRequest(url: string, options: RequestInit = {}) {
   const response = await fetch(url, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
@@ -25,7 +29,19 @@ async function uploadCover(id: string, file: File) {
   await jsonRequest(`/api/catalogs/${id}/upload/complete`, { method: "POST", body: JSON.stringify({ kind: "cover", key: initialized.key }) });
 }
 
+async function uploadPdf(id: string, file: File) {
+  const initialized = await jsonRequest(`/api/catalogs/${id}/upload`, {
+    method: "POST",
+    body: JSON.stringify({ kind: "pdf", filename: file.name, size: file.size, contentType: file.type || "application/pdf" }),
+  });
+  const response = await fetch(initialized.uploadUrl, { method: "PUT", headers: { "Content-Type": initialized.headers["Content-Type"] }, body: file });
+  if (!response.ok) throw new Error("PDF upload failed. Check your connection.");
+  await jsonRequest(`/api/catalogs/${id}/upload/complete`, { method: "POST", body: JSON.stringify({ kind: "pdf", key: initialized.key }) });
+}
+
 export function CatalogCreateForm() {
+  const [sourceMode, setSourceMode] = useState<"url" | "upload">("url");
+  const [pdf, setPdf] = useState<File | null>(null);
   const [cover, setCover] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState("");
   const [stage, setStage] = useState<Stage>("idle");
@@ -42,6 +58,10 @@ export function CatalogCreateForm() {
     setCoverPreview(file ? URL.createObjectURL(file) : "");
   }
 
+  function choosePdf(file: File | undefined) {
+    setPdf(file || null);
+  }
+
   async function poll(id: string) {
     setStage("processing");
     for (let attempt = 0; attempt < 900; attempt += 1) {
@@ -50,16 +70,18 @@ export function CatalogCreateForm() {
       setProgress(current.processingProgress);
       setMessage(current.processingMessage || "Processing catalog...");
       if (current.status === "ready" || current.status === "published") { setStage("ready"); return; }
-      if (current.status === "error") throw new Error(current.processingError || "Catalog processing failed.");
+      if (isProcessingFailure(current.status)) throw new Error(current.processingError || "Catalog processing failed.");
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
     }
     throw new Error("Processing is continuing in the background. It will appear on the dashboard when ready.");
   }
 
   async function begin(values: Record<string, FormDataEntryValue>, existingId?: string) {
+    const selectedMode = String(values.sourceMode || sourceMode) === "upload" ? "upload" : "url";
     const sourceUrl = String(values.sourceUrl || "").trim();
-    if (!sourceUrl) { setError("Add the URL where the PDF is stored."); return; }
-    setError(""); setStage("processing"); setProgress(1); setMessage("Fetching the source PDF...");
+    if (selectedMode === "url" && !sourceUrl) { setError("Add the URL where the PDF is stored."); return; }
+    if (selectedMode === "upload" && !pdf) { setError("Choose a PDF file to upload."); return; }
+    setError(""); setStage("processing"); setProgress(1); setMessage(selectedMode === "url" ? "Fetching the source PDF..." : "Preparing the PDF upload...");
     try {
       let id = existingId;
       if (!id) {
@@ -70,7 +92,7 @@ export function CatalogCreateForm() {
             collection: values.collection,
             season: values.season,
             description: values.description,
-            sourceUrl,
+            ...(selectedMode === "url" ? { sourceUrl } : {}),
             allowDownload: values.allowDownload === "on",
             showBackButton: values.showBackButton === "on",
           }),
@@ -78,7 +100,7 @@ export function CatalogCreateForm() {
         setCatalog(created.catalog); id = created.catalog.id;
       } else {
         const current: CatalogDto = (await jsonRequest(`/api/catalogs/${id}`)).catalog;
-        if (current.sourceUrl !== sourceUrl) {
+        if (selectedMode === "url" && current.sourceUrl !== sourceUrl) {
           await jsonRequest(`/api/catalogs/${id}`, {
             method: "PUT",
             body: JSON.stringify({
@@ -91,10 +113,11 @@ export function CatalogCreateForm() {
               showBackButton: values.showBackButton === "on",
             }),
           });
-        } else if (current.status === "error") {
+          } else if (selectedMode === "url" && isProcessingFailure(current.status)) {
           await jsonRequest(`/api/catalogs/${id}/process`, { method: "POST" });
         }
       }
+      if (selectedMode === "upload" && pdf) { setMessage("Uploading source PDF..."); await uploadPdf(id!, pdf); }
       if (cover) { setMessage("Uploading cover image..."); await uploadCover(id!, cover); }
       await poll(id!);
     } catch (reason) {
@@ -126,8 +149,9 @@ export function CatalogCreateForm() {
         </section>
 
         <section className="form-section">
-          <h2>PDF source</h2><p>Paste the public URL where the PDF is stored. RK Fashion will fetch it and build the optimized flipbook in the background.</p>
-          <div className="field wide"><label htmlFor="sourceUrl">PDF storage URL</label><input className="input" id="sourceUrl" name="sourceUrl" type="url" required placeholder="https://example.com/catalog.pdf" disabled={stage !== "idle" && stage !== "error"} /><span className="field-hint">The URL must be reachable by the server and return a PDF. Maximum 250 MB.</span></div>
+          <h2>PDF source</h2><p>Import a hosted PDF or upload one. RK Fashion processes the PDF on the server and builds optimized flipbook assets.</p>
+          <div className="check-row wide" style={{ gap: 18 }}><label><input type="radio" name="sourceMode" value="url" checked={sourceMode === "url"} onChange={() => setSourceMode("url")} disabled={stage !== "idle" && stage !== "error"} /> Import from URL</label><label><input type="radio" name="sourceMode" value="upload" checked={sourceMode === "upload"} onChange={() => setSourceMode("upload")} disabled={stage !== "idle" && stage !== "error"} /> Upload PDF</label></div>
+          {sourceMode === "url" ? <div className="field wide"><label htmlFor="sourceUrl">PDF source URL</label><input className="input" id="sourceUrl" name="sourceUrl" type="url" required placeholder="https://gentle-kangaroo.staticdomains.app/catalog.pdf" disabled={stage !== "idle" && stage !== "error"} /><span className="field-hint">The URL must use HTTPS and return a valid PDF. The original remains hosted externally.</span></div> : <div className="cover-picker"><label><Upload size={18} /><span>{pdf ? pdf.name : "Choose a PDF file"}</span><input className="sr-only" type="file" accept="application/pdf,.pdf" onChange={(event) => choosePdf(event.target.files?.[0])} disabled={stage !== "idle" && stage !== "error"} /></label></div>}
           <div className="cover-picker">
             <label><ImagePlus size={18} /> {coverPreview && <img className="cover-preview" src={coverPreview} alt="Selected cover" />}<span>{cover ? cover.name : "Add an optional cover image"}</span><input className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => chooseCover(event.target.files?.[0])} disabled={stage !== "idle" && stage !== "error"} /></label>
           </div>

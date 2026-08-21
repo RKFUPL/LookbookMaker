@@ -9,10 +9,6 @@ services:
     plan: starter
     numInstances: 1
     healthCheckPath: /login
-    disk:
-      name: rk-catalog-data
-      mountPath: /var/data
-      sizeGB: 20
     envVars:
       - key: APP_URL
         value: https://lookbookmaker.onrender.com
@@ -25,9 +21,21 @@ services:
       - key: SESSION_TTL_HOURS
         value: "12"
       - key: STORAGE_DRIVER
-        value: local
-      - key: LOCAL_STORAGE_ROOT
-        value: /var/data/objects
+        value: s3
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_REGION
+        value: auto
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_PUBLIC_BASE_URL
+        sync: false
+      - key: R2_FORCE_PATH_STYLE
+        value: "false"
       - key: SIGNED_URL_TTL_SECONDS
         value: "3600"
       - key: MAX_PDF_SIZE_MB

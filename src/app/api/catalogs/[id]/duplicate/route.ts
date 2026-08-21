@@ -26,6 +26,8 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       season: source.season,
       description: source.description,
       sourceUrl: source.sourceUrl,
+      sourcePdfUrl: source.sourcePdfUrl || source.sourceUrl,
+      sourceType: source.sourceType || (source.sourceUrl ? "external_url" : source.sourceKey ? "uploaded" : undefined),
       status: source.pageCount ? "ready" : "draft",
       pageCount: source.pageCount,
       width: source.width || source.pages?.[0]?.width || 0,
@@ -49,6 +51,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       duplicate.sourceContentType = source.sourceContentType;
       duplicate.originalFilename = source.originalFilename;
     }
+    if (!duplicate.originalFilename && source.originalFilename) duplicate.originalFilename = source.originalFilename;
 
     const pages = [];
     for (const page of source.pages || []) {

@@ -35,6 +35,8 @@ async function queueSource(catalog: HydratedDocument<ICatalog>, definition: Look
   const sameSource = catalog.sourceUrl === definition.pdfUrl;
   if (sameSource && ["ready", "published", "processing"].includes(catalog.status)) return;
   catalog.sourceUrl = definition.pdfUrl;
+  catalog.sourcePdfUrl = definition.pdfUrl;
+  catalog.sourceType = "external_url";
   catalog.sourceKey = undefined;
   catalog.sourceSize = undefined;
   catalog.sourceContentType = undefined;
@@ -44,6 +46,7 @@ async function queueSource(catalog: HydratedDocument<ICatalog>, definition: Look
   catalog.width = 0;
   catalog.height = 0;
   catalog.assetVersion = undefined;
+  catalog.assetBasePrefix = undefined;
   catalog.status = "processing";
   catalog.processingProgress = 1;
   catalog.processingMessage = "Queued to fetch the source PDF...";
@@ -72,6 +75,8 @@ async function createOrReuse(definition: Lookbook, staffId: mongoose.Types.Objec
       season: definition.season,
       description: definition.description,
       sourceUrl: definition.pdfUrl || undefined,
+      sourcePdfUrl: definition.pdfUrl || undefined,
+      sourceType: definition.pdfUrl ? "external_url" : undefined,
       status: definition.pdfUrl ? "processing" : "draft",
       processingProgress: definition.pdfUrl ? 1 : 0,
       processingMessage: definition.pdfUrl ? "Queued to fetch the source PDF..." : "Add a PDF source URL to continue.",

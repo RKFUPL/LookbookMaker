@@ -42,6 +42,8 @@ export async function POST(request: Request, context: Context) {
       if (prefix.subarray(0, 5).toString("ascii") !== "%PDF-") throw new ApiError(415, "The uploaded file is not a valid PDF.");
       Object.assign(catalog, {
         sourceKey: input.key,
+        sourcePdfUrl: undefined,
+        sourceType: "uploaded",
         sourceSize: Number(head.ContentLength),
         sourceEtag: head.ETag,
         sourceContentType: expectedType,

@@ -6,6 +6,10 @@ import { useEffect, useRef, useState } from "react";
 import { Archive, Copy, ExternalLink, MoreHorizontal, Pencil, Send, Trash2, Unlink } from "lucide-react";
 import type { CatalogDto } from "@/types/catalog";
 
+function isProcessingFailure(status: string) {
+  return ["error", "processing_failed", "storage_failed"].includes(status);
+}
+
 export function CatalogCard({ catalog, onChanged }: { catalog: CatalogDto; onChanged: () => void }) {
   const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,7 +52,7 @@ export function CatalogCard({ catalog, onChanged }: { catalog: CatalogDto; onCha
         <h2 className="catalog-title" title={catalog.title}>{catalog.title}</h2>
         <div className="catalog-meta"><span>{catalog.pageCount || "—"} pages</span><span>{catalog.views.toLocaleString()} views</span><span>{new Date(catalog.updatedAt).toLocaleDateString(undefined, { day: "2-digit", month: "short" })}</span></div>
         <div className="catalog-actions">
-          {catalog.status === "uploading" || catalog.status === "error" ? <Link className="btn btn-secondary" href={`/admin/catalogs/${catalog.id}/edit`}>{catalog.status === "uploading" ? "Continue upload" : "Fix catalog"}</Link> : canPreview ? <Link className="btn btn-secondary" href={`/admin/catalogs/${catalog.id}/preview`}>Preview</Link> : <button className="btn btn-secondary" disabled>Processing</button>}
+          {catalog.status === "uploading" || isProcessingFailure(catalog.status) ? <Link className="btn btn-secondary" href={`/admin/catalogs/${catalog.id}/edit`}>{catalog.status === "uploading" ? "Continue upload" : "Fix catalog"}</Link> : canPreview ? <Link className="btn btn-secondary" href={`/admin/catalogs/${catalog.id}/preview`}>Preview</Link> : <button className="btn btn-secondary" disabled>Processing</button>}
           {catalog.status === "ready" && <button className="btn btn-primary" disabled={busy} onClick={() => action("/publish")}><Send size={12} /> Publish</button>}
           {catalog.status === "published" && <a className="btn btn-primary" href={catalog.publicUrl} target="_blank" rel="noreferrer"><ExternalLink size={12} /> Open</a>}
           <div className="more" ref={root}>

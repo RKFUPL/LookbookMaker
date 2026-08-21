@@ -6,7 +6,7 @@ import { Catalog } from "@/models/Catalog";
 import { connectDb } from "@/lib/db";
 import { getStaffSession, requireStaff } from "@/lib/auth";
 import { apiError, ApiError } from "@/lib/http";
-import { localObjectPath, verifyLocalDownloadToken } from "@/lib/storage";
+import { isLocalStorage, localObjectPath, verifyLocalDownloadToken } from "@/lib/storage";
 
 function contentType(key: string) {
   const extension = key.split(".").pop()?.toLowerCase();
@@ -15,6 +15,7 @@ function contentType(key: string) {
 
 export async function GET(request: Request) {
   try {
+    if (!isLocalStorage()) throw new ApiError(410, "This deployment serves assets directly from object storage.", "DIRECT_STORAGE_ASSET");
     const url = new URL(request.url);
     const key = url.searchParams.get("key") || "";
     const isSource = key.includes("/source/");
