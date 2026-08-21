@@ -4,7 +4,7 @@ import { copyFile, mkdir, open, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { appUrl, getConfig } from "@/lib/config";
+import { getConfig } from "@/lib/config";
 
 function localRoot() {
   const configured = getConfig().LOCAL_STORAGE_ROOT.trim();
@@ -57,7 +57,7 @@ async function ensureParent(key: string) {
 export async function signedUploadUrl(key: string, _contentType: string, _cacheControl?: string) {
   void _contentType;
   void _cacheControl;
-  return `${appUrl()}/api/storage/upload?key=${encodeURIComponent(key)}`;
+  return `/api/storage/upload?key=${encodeURIComponent(key)}`;
 }
 
 export async function objectHead(key: string) {
@@ -105,14 +105,14 @@ export async function uploadFile(
 }
 
 export async function objectUrl(key: string) {
-  return `${appUrl()}/api/storage/object?key=${encodeURIComponent(key)}`;
+  return `/api/storage/object?key=${encodeURIComponent(key)}`;
 }
 
 export async function privateDownloadUrl(key: string, filename: string) {
   const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120) || "catalog.pdf";
   const expires = Math.floor(Date.now() / 1000) + 5 * 60;
   const token = storageSignature(`${key}:${expires}`);
-  return `${appUrl()}/api/storage/object?key=${encodeURIComponent(key)}&download=1&filename=${encodeURIComponent(safeName)}&expires=${expires}&token=${token}`;
+  return `/api/storage/object?key=${encodeURIComponent(key)}&download=1&filename=${encodeURIComponent(safeName)}&expires=${expires}&token=${token}`;
 }
 
 export async function copyObject(sourceKey: string, targetKey: string) {

@@ -18,6 +18,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       userAgent: request.headers.get("user-agent")?.slice(0, 500),
     }).catch(() => undefined);
     const url = await privateDownloadUrl(catalog.sourceKey, catalog.originalFilename || `${catalog.slug}.pdf`);
-    return NextResponse.redirect(url, 307);
+    return NextResponse.redirect(new URL(url, request.url), 307);
   } catch (error) { return apiError(error); }
 }

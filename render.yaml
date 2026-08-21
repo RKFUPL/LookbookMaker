@@ -14,8 +14,8 @@ services:
       mountPath: /var/data
       sizeGB: 20
     envVars:
-      - key: NEXT_PUBLIC_APP_URL
-        sync: false
+      - key: APP_URL
+        value: https://lookbookmaker.onrender.com
       - key: PORT
         value: "10000"
       - key: MONGODB_URI

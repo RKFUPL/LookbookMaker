@@ -3,6 +3,7 @@ import { z } from "zod";
 const serverSchema = z.object({
   MONGODB_URI: z.string().min(1),
   AUTH_SECRET: z.string().min(32),
+  APP_URL: z.string().url().optional().or(z.literal("")),
   STORAGE_DRIVER: z.literal("local").default("local"),
   LOCAL_STORAGE_ROOT: z.string().default("data/objects"),
   SIGNED_URL_TTL_SECONDS: z.coerce.number().int().min(60).max(604800).default(3600),
@@ -31,5 +32,17 @@ export function getConfig(): ServerConfig {
 }
 
 export function appUrl() {
-  return (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
+  const configured = process.env.APP_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (configured) {
+    const origin = new URL(configured);
+    const isLocalOrigin = origin.hostname === "localhost" || origin.hostname === "127.0.0.1" || origin.hostname === "::1";
+    if (process.env.NODE_ENV === "production" && (origin.protocol !== "https:" || isLocalOrigin)) {
+      throw new Error("APP_URL must be an HTTPS public origin in production.");
+    }
+    return origin.toString().replace(/\/$/, "");
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("APP_URL must be configured in production.");
+  }
+  return "http://localhost:3000";
 }
