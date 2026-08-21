@@ -20,7 +20,7 @@ Prerequisites: Node.js 22+, MongoDB, and Poppler installed locally, or Docker.
 
 1. Copy `.env.example` to `.env` and replace `AUTH_SECRET` and the bootstrap password.
 2. Run `npm install`.
-3. Start MongoDB locally or point `.env` at MongoDB Atlas. Keep `STORAGE_DRIVER=local` for local assets, or configure R2 for an end-to-end storage test.
+3. Start MongoDB locally or point `.env` at MongoDB Atlas. Keep `STORAGE_PROVIDER=local` for local assets, or configure R2 for an end-to-end storage test.
 4. Create the first staff account with `npm run seed:admin`.
 5. In separate terminals, run `npm run dev` and `npm run worker`.
 6. Open `http://localhost:3000/login`.
@@ -33,16 +33,20 @@ Set these server-only variables in Render:
 
 ```text
 APP_URL=https://lookbookmaker.onrender.com
-STORAGE_DRIVER=s3
+STORAGE_PROVIDER=r2
 R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
 R2_REGION=auto
 R2_BUCKET=rk-catalogs
 R2_ACCESS_KEY_ID=<server-only-access-key>
 R2_SECRET_ACCESS_KEY=<server-only-secret-key>
 R2_PUBLIC_BASE_URL=https://cdn.rashikapoorofficial.com
+# Optional: an existing object used for startup HEAD verification.
+R2_HEALTHCHECK_KEY=catalogs/<catalog-id>/assets/<version>/large/0001.webp
 ```
 
 `R2_PUBLIC_BASE_URL` must point to a public R2 custom domain or CDN. Public catalog APIs return direct CDN URLs for immutable page assets; the application does not proxy each page through `/api/storage/object`.
+
+Production fails during startup unless `STORAGE_PROVIDER=r2`, `APP_URL` is a public HTTPS URL, and all required R2 variables are present. Startup prints only the provider, bucket, public asset base, and a safe `R2 storage: connected` result. The same check is available at `/api/health/storage`.
 
 Direct browser uploads require R2 bucket CORS. Restrict the origin to the catalog application in production:
 

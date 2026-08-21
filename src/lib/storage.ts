@@ -8,13 +8,14 @@ import {
   CopyObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { getConfig } from "@/lib/config";
+import { getConfig, storageProvider, type StorageProvider } from "@/lib/config";
 
 export class StorageError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
@@ -41,7 +42,7 @@ function localRoot() {
 }
 
 export function isLocalStorage() {
-  return getConfig().STORAGE_DRIVER === "local";
+  return storageProvider() === "local";
 }
 
 function settings(): StorageSettings {
@@ -81,6 +82,31 @@ function s3Client() {
 
 function s3Config() {
   return settings();
+}
+
+export type StorageHealth = {
+  provider: StorageProvider;
+  bucket: string;
+  publicBaseUrl: string;
+  checkedObjectKey?: string;
+};
+
+export async function checkStorageHealth(): Promise<StorageHealth> {
+  const config = getConfig();
+  const provider = storageProvider(config);
+  if (provider === "local") {
+    return { provider, bucket: "local filesystem", publicBaseUrl: "" };
+  }
+  return storageCall("Check R2 storage", async () => {
+    const storage = s3Config();
+    const healthcheckKey = config.R2_HEALTHCHECK_KEY?.trim();
+    if (healthcheckKey) {
+      await s3Client().send(new HeadObjectCommand({ Bucket: storage.bucket, Key: validateObjectKey(healthcheckKey) }));
+      return { provider, bucket: storage.bucket, publicBaseUrl: storage.publicBaseUrl, checkedObjectKey: healthcheckKey };
+    }
+    await s3Client().send(new HeadBucketCommand({ Bucket: storage.bucket }));
+    return { provider, bucket: storage.bucket, publicBaseUrl: storage.publicBaseUrl };
+  });
 }
 
 async function storageCall<T>(operation: string, action: () => Promise<T>) {
@@ -256,12 +282,17 @@ export async function uploadFile(key: string, filePath: string, contentType: str
   });
 }
 
-export async function publicObjectUrl(key: string) {
+export async function getPublicAssetUrl(key: string) {
   if (isLocalStorage()) return localObjectUrl(key);
   return storageCall("Create public object URL", async () => {
     const config = s3Config();
-    return config.publicBaseUrl ? `${config.publicBaseUrl.replace(/\/$/, "")}/${encodedKey(key)}` : signedObjectUrl(key);
+    if (!config.publicBaseUrl) throw new StorageError("R2_PUBLIC_BASE_URL is required for public catalog assets.");
+    return `${config.publicBaseUrl.replace(/\/$/, "")}/${encodedKey(key)}`;
   });
+}
+
+export async function publicObjectUrl(key: string) {
+  return getPublicAssetUrl(key);
 }
 
 export async function privateObjectUrl(key: string) {
@@ -270,7 +301,7 @@ export async function privateObjectUrl(key: string) {
 }
 
 export async function objectUrl(key: string) {
-  return publicObjectUrl(key);
+  return getPublicAssetUrl(key);
 }
 
 export async function privateDownloadUrl(key: string, filename: string) {

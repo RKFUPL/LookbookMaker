@@ -66,7 +66,7 @@ async function main() {
     await catalog.save();
     await ProcessingJob.create({ catalogId: catalog._id, status: "queued", availableAt: new Date() });
   }
-  if (!confirmed) console.log("Nothing changed. Re-run with --confirm after configuring STORAGE_DRIVER=s3 and the R2 variables.");
+  if (!confirmed) console.log("Nothing changed. Re-run with --confirm after configuring STORAGE_PROVIDER=r2 and the R2 variables.");
   else console.log("Migration queued. Source PDFs remain on their external URLs; no local source copies were created.");
 }
 

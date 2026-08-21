@@ -4,7 +4,8 @@ const serverSchema = z.object({
   MONGODB_URI: z.string().min(1),
   AUTH_SECRET: z.string().min(32),
   APP_URL: z.string().url().optional().or(z.literal("")),
-  STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
+  STORAGE_PROVIDER: z.enum(["local", "r2"]).optional(),
+  STORAGE_DRIVER: z.enum(["local", "s3"]).optional(),
   LOCAL_STORAGE_ROOT: z.string().default("data/objects"),
   R2_ENDPOINT: z.string().url().optional().or(z.literal("")),
   R2_REGION: z.string().default("auto"),
@@ -12,6 +13,7 @@ const serverSchema = z.object({
   R2_ACCESS_KEY_ID: z.string().optional().or(z.literal("")),
   R2_SECRET_ACCESS_KEY: z.string().optional().or(z.literal("")),
   R2_PUBLIC_BASE_URL: z.string().url().optional().or(z.literal("")),
+  R2_HEALTHCHECK_KEY: z.string().optional().or(z.literal("")),
   R2_FORCE_PATH_STYLE: z.enum(["true", "false"]).default("false"),
   S3_ENDPOINT: z.string().url().optional().or(z.literal("")),
   S3_REGION: z.string().optional().or(z.literal("")),
@@ -28,6 +30,7 @@ const serverSchema = z.object({
 });
 
 export type ServerConfig = z.infer<typeof serverSchema>;
+export type StorageProvider = "local" | "r2";
 
 let cached: ServerConfig | undefined;
 
@@ -42,8 +45,34 @@ export function getConfig(): ServerConfig {
     throw new Error(`Invalid server configuration: ${message}`);
   }
 
+  if (process.env.NODE_ENV === "production") {
+    if (parsed.data.STORAGE_PROVIDER !== "r2") {
+      throw new Error("Production requires STORAGE_PROVIDER=r2. Refusing to use local filesystem storage.");
+    }
+    const missing = [
+      ["APP_URL", parsed.data.APP_URL],
+      ["R2_ENDPOINT", parsed.data.R2_ENDPOINT],
+      ["R2_BUCKET", parsed.data.R2_BUCKET],
+      ["R2_ACCESS_KEY_ID", parsed.data.R2_ACCESS_KEY_ID],
+      ["R2_SECRET_ACCESS_KEY", parsed.data.R2_SECRET_ACCESS_KEY],
+      ["R2_PUBLIC_BASE_URL", parsed.data.R2_PUBLIC_BASE_URL],
+    ].filter(([, value]) => !value).map(([name]) => name);
+    if (missing.length) throw new Error(`Missing required production configuration: ${missing.join(", ")}.`);
+    const origin = new URL(parsed.data.APP_URL!);
+    if (origin.protocol !== "https:" || ["localhost", "127.0.0.1", "::1"].includes(origin.hostname)) {
+      throw new Error("APP_URL must be an HTTPS public origin in production.");
+    }
+  }
   cached = parsed.data;
   return cached;
+}
+
+export function storageProvider(config = getConfig()): StorageProvider {
+  if (config.STORAGE_PROVIDER) return config.STORAGE_PROVIDER;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Production requires STORAGE_PROVIDER=r2. Refusing to use local filesystem storage.");
+  }
+  return config.STORAGE_DRIVER === "s3" ? "r2" : "local";
 }
 
 export function appUrl() {

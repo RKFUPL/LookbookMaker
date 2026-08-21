@@ -1,11 +1,11 @@
 import type { ICatalog } from "@/models/Catalog";
-import { privateObjectUrl, publicObjectUrl } from "@/lib/storage";
+import { getPublicAssetUrl, privateObjectUrl } from "@/lib/storage";
 import type { CatalogDto, CatalogPage, PublicCatalogDto } from "@/types/catalog";
 
 type CatalogLike = ICatalog & { _id: unknown; createdAt: Date; updatedAt: Date };
 
 async function serializePages(catalog: CatalogLike, publicAssets: boolean): Promise<CatalogPage[]> {
-  const assetUrl = publicAssets ? publicObjectUrl : privateObjectUrl;
+  const assetUrl = publicAssets ? getPublicAssetUrl : privateObjectUrl;
   return Promise.all(
     (catalog.pages || []).map(async (page) => {
       const mediumKey = page.mediumKey || page.largeKey || page.imageKey || page.thumbnailKey;
@@ -96,7 +96,7 @@ export async function serializePublicCatalog(catalog: CatalogLike, includeAssets
     pageCount: catalog.pageCount || catalog.pages?.length || 0,
     width: catalog.width || firstPage?.width || 0,
     height: catalog.height || firstPage?.height || 0,
-    coverImageUrl: catalog.coverImageKey ? await publicObjectUrl(catalog.coverImageKey) : null,
+    coverImageUrl: catalog.coverImageKey ? await getPublicAssetUrl(catalog.coverImageKey) : null,
     publicUrl: `/catalog/${catalog.slug}`,
     downloadUrl: catalog.allowDownload ? `/api/catalogs/${catalog.slug}/download` : null,
     settings: {

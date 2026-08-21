@@ -6,7 +6,7 @@ import { Catalog } from "@/models/Catalog";
 import { connectDb } from "@/lib/db";
 import { getStaffSession, requireStaff } from "@/lib/auth";
 import { apiError, ApiError } from "@/lib/http";
-import { isLocalStorage, localObjectPath, verifyLocalDownloadToken } from "@/lib/storage";
+import { getPublicAssetUrl, isLocalStorage, localObjectPath, privateDownloadUrl, privateObjectUrl, verifyLocalDownloadToken } from "@/lib/storage";
 
 function contentType(key: string) {
   const extension = key.split(".").pop()?.toLowerCase();
@@ -15,10 +15,34 @@ function contentType(key: string) {
 
 export async function GET(request: Request) {
   try {
-    if (!isLocalStorage()) throw new ApiError(410, "This deployment serves assets directly from object storage.", "DIRECT_STORAGE_ASSET");
     const url = new URL(request.url);
     const key = url.searchParams.get("key") || "";
+    if (!key) throw new ApiError(400, "Object key is required.", "INVALID_OBJECT_KEY");
     const isSource = key.includes("/source/");
+
+    if (!isLocalStorage()) {
+      if (isSource) {
+        await requireStaff();
+        const target = url.searchParams.get("download") === "1"
+          ? await privateDownloadUrl(key, url.searchParams.get("filename") || "catalog.pdf")
+          : await privateObjectUrl(key);
+        return NextResponse.redirect(new URL(target, request.url), 307);
+      }
+      await connectDb();
+      const catalog = await Catalog.findOne({
+        $or: [
+          { coverImageKey: key },
+          { "pages.imageKey": key },
+          { "pages.thumbnailKey": key },
+          { "pages.mediumKey": key },
+          { "pages.largeKey": key },
+        ],
+      }).select("status");
+      if (!catalog) throw new ApiError(404, "Object not found.", "NOT_FOUND");
+      if (catalog.status !== "published" && !await getStaffSession()) await requireStaff();
+      return NextResponse.redirect(await getPublicAssetUrl(key), 307);
+    }
+
     const signedDownload = url.searchParams.get("download") === "1" && verifyLocalDownloadToken(key, url.searchParams.get("expires") || "", url.searchParams.get("token") || "");
     if (isSource && !signedDownload) await requireStaff();
     if (!isSource) {
