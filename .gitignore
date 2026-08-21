@@ -12,3 +12,4 @@ minio.exe
 mc.exe
 mc-config/
 data/minio/
+data/objects/

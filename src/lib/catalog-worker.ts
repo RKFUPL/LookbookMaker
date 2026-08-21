@@ -62,13 +62,14 @@ async function renderPage(pdfPath: string, page: number, workDir: string) {
 
 export async function processCatalog(catalogId: string) {
   await connectDb();
-  const catalog = await Catalog.findById(catalogId);
+  const catalog = await Catalog.findById(catalogId).select("+pendingProductLinks");
   if (!catalog?.sourceKey && !catalog?.sourceUrl) throw new Error("Catalog source PDF URL is missing.");
 
   const workDir = await mkdtemp(join(tmpdir(), "rk-catalog-"));
   const pdfPath = join(workDir, "source.pdf");
   const assetVersion = randomUUID();
   const assetPrefix = `catalogs/${catalogId}/assets/${assetVersion}/`;
+  const shouldPublishAfterProcessing = catalog.status === "published" || Boolean(catalog.publishedAt);
   const generatedCover = !catalog.coverImageKey
     || catalog.coverImageKey.startsWith(`catalogs/${catalogId}/pages/`)
     || catalog.coverImageKey.startsWith(`catalogs/${catalogId}/assets/`);
@@ -86,6 +87,19 @@ export async function processCatalog(catalogId: string) {
       })),
     ]),
   );
+  for (const page of catalog.pendingProductLinks || []) {
+    if (!existingLinks.has(page.page)) {
+      existingLinks.set(page.page, (page.productLinks || []).map((product: ProductLink) => ({
+        sku: product.sku,
+        label: product.label,
+        href: product.href,
+        x: product.x ?? undefined,
+        y: product.y ?? undefined,
+        width: product.width ?? undefined,
+        height: product.height ?? undefined,
+      })));
+    }
+  }
   let completed = false;
 
   try {
@@ -97,10 +111,12 @@ export async function processCatalog(catalogId: string) {
     });
     let sourceKey = catalog.sourceKey;
     let sourceDetails: { size: number; contentType: string; finalUrl: string } | undefined;
-    if (sourceKey) {
+    if (catalog.sourceUrl) {
+      sourceDetails = await downloadRemotePdf(catalog.sourceUrl, pdfPath, getConfig().MAX_PDF_SIZE_MB * 1024 * 1024);
+    } else if (sourceKey) {
       await downloadObject(sourceKey, pdfPath);
     } else {
-      sourceDetails = await downloadRemotePdf(catalog.sourceUrl, pdfPath, getConfig().MAX_PDF_SIZE_MB * 1024 * 1024);
+      throw new Error("Catalog source PDF URL is missing.");
     }
     const file = await open(pdfPath, "r");
     const headerBuffer = Buffer.alloc(5);
@@ -172,7 +188,7 @@ export async function processCatalog(catalogId: string) {
 
     const firstPage = renderedPages[0];
     await Catalog.findByIdAndUpdate(catalogId, {
-      status: "ready",
+      status: shouldPublishAfterProcessing ? "published" : "ready",
       assetVersion,
       pages: renderedPages,
       pageCount: count,
@@ -181,6 +197,7 @@ export async function processCatalog(catalogId: string) {
       processingProgress: 100,
       processingMessage: "Catalog ready",
       processingError: "",
+      pendingProductLinks: [],
       ...(generatedCover ? { coverImageKey: firstPage.largeKey, coverContentType: "image/webp" } : {}),
     });
     completed = true;

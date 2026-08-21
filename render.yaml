@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: rk-fashion-catalog
+    runtime: docker
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: npm run start:render
+    plan: starter
+    numInstances: 1
+    healthCheckPath: /login
+    disk:
+      name: rk-catalog-data
+      mountPath: /var/data
+      sizeGB: 20
+    envVars:
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: PORT
+        value: "10000"
+      - key: MONGODB_URI
+        sync: false
+      - key: AUTH_SECRET
+        sync: false
+      - key: SESSION_TTL_HOURS
+        value: "12"
+      - key: STORAGE_DRIVER
+        value: local
+      - key: LOCAL_STORAGE_ROOT
+        value: /var/data/objects
+      - key: SIGNED_URL_TTL_SECONDS
+        value: "3600"
+      - key: MAX_PDF_SIZE_MB
+        value: "250"
+      - key: MAX_COVER_SIZE_MB
+        value: "10"
+      - key: PDFINFO_BIN
+        value: pdfinfo
+      - key: PDFTOPPM_BIN
+        value: pdftoppm
+      - key: WORKER_POLL_MS
+        value: "2500"
+      - key: WORKER_MAX_ATTEMPTS
+        value: "3"
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        value: staff@rashikapoorofficial.com
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: BOOTSTRAP_ADMIN_NAME
+        value: RK Staff

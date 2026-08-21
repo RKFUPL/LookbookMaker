@@ -6,14 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "start:render": "node --import tsx scripts/render-start.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "worker": "node --env-file-if-exists=.env --import tsx scripts/catalog-worker.ts",
     "seed:admin": "node --env-file-if-exists=.env --import tsx scripts/seed-admin.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "latest",
-    "@aws-sdk/s3-request-presigner": "latest",
     "bcryptjs": "latest",
     "jose": "latest",
     "lucide-react": "latest",

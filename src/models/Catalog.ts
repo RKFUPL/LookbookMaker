@@ -13,6 +13,14 @@ const productLinkSchema = new Schema(
   { _id: false },
 );
 
+const pendingProductLinksSchema = new Schema(
+  {
+    page: { type: Number, required: true },
+    productLinks: { type: [productLinkSchema], default: [] },
+  },
+  { _id: false },
+);
+
 const pageSchema = new Schema(
   {
     page: { type: Number, required: true },
@@ -61,6 +69,7 @@ const catalogSchema = new Schema(
     height: { type: Number, default: 0 },
     assetVersion: String,
     pages: { type: [pageSchema], default: [] },
+    pendingProductLinks: { type: [pendingProductLinksSchema], default: [], select: false },
     processingProgress: { type: Number, default: 0 },
     processingMessage: { type: String, default: "" },
     processingError: { type: String, default: "" },
