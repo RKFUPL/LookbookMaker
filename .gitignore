@@ -1,0 +1,14 @@
+node_modules/
+.next/
+.env
+.env.local
+*.log
+coverage/
+*.tsbuildinfo
+.DS_Store
+tmp/
+catalog-work/
+minio.exe
+mc.exe
+mc-config/
+data/minio/

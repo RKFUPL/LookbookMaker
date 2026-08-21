@@ -1,0 +1,85 @@
+services:
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    volumes:
+      - rk-mongo:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: rk-local
+      MINIO_ROOT_PASSWORD: rk-local-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - rk-objects:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  create-bucket:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["mc alias set local http://minio:9000 rk-local rk-local-secret && mc mb --ignore-existing local/rk-catalogs"]
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file: .env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/rk_catalogs
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+    depends_on:
+      mongo:
+        condition: service_healthy
+      create-bucket:
+        condition: service_completed_successfully
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["npm", "run", "worker"]
+    env_file: .env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/rk_catalogs
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+    depends_on:
+      mongo:
+        condition: service_healthy
+      create-bucket:
+        condition: service_completed_successfully
+
+  seed-admin:
+    profiles: ["setup"]
+    build: .
+    command: ["npm", "run", "seed:admin"]
+    env_file: .env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/rk_catalogs
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  rk-mongo:
+  rk-objects:
