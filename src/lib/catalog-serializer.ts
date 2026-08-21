@@ -55,6 +55,7 @@ export async function serializeCatalog(catalog: CatalogLike, includeAssets = fal
     processingMessage: catalog.processingMessage || "",
     processingError: catalog.processingError || "",
     coverImageUrl: catalog.coverImageKey ? await objectUrl(catalog.coverImageKey) : null,
+    sourceUrl: catalog.sourceUrl || "",
     originalFilename: catalog.originalFilename || "",
     sourceSize: catalog.sourceSize || 0,
     allowDownload: catalog.allowDownload,

@@ -5,6 +5,7 @@ export const catalogCreateSchema = z.object({
   collection: z.string().trim().min(1).max(120),
   season: z.string().trim().min(1).max(80),
   description: z.string().trim().max(2000).default(""),
+  sourceUrl: z.string().trim().url().max(2048),
   allowDownload: z.boolean().default(true),
   showBackButton: z.boolean().default(false),
 });

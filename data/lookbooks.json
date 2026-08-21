@@ -1,0 +1,51 @@
+[
+  {
+    "slug": "anamika-lookbook",
+    "title": "Anamika Lookbook",
+    "collection": "Anamika",
+    "season": "2026",
+    "description": "Anamika lookbook",
+    "pdfUrl": "https://gentle-kangaroo.staticdomains.app/f3013661c0313a0e98c87cf599c75a0a.pdf"
+  },
+  {
+    "slug": "hastakala",
+    "title": "Hastakala",
+    "collection": "Hastakala",
+    "season": "2026",
+    "description": "Hastakala lookbook",
+    "pdfUrl": "https://gentle-kangaroo.staticdomains.app/RKHastkalaNew2.pdf"
+  },
+  {
+    "slug": "inaara",
+    "title": "Inaara",
+    "collection": "Inaara",
+    "season": "2026",
+    "description": "Inaara lookbook",
+    "pdfUrl": "https://gentle-kangaroo.staticdomains.app/RKLookbookInaara.pdf"
+  },
+  {
+    "slug": "sandook",
+    "title": "Sandook",
+    "collection": "Sandook",
+    "season": "2026",
+    "description": "Sandook lookbook",
+    "pdfUrl": "https://gentle-kangaroo.staticdomains.app/SANDOOKLOOKBOOK.pdf"
+  },
+  {
+    "slug": "espi",
+    "legacySlug": "libre",
+    "title": "Espi",
+    "collection": "Espi",
+    "season": "2026",
+    "description": "Espi lookbook",
+    "pdfUrl": "https://gentle-kangaroo.staticdomains.app/EspirituLibre-Lookbook.pdf"
+  },
+  {
+    "slug": "naqab",
+    "title": "Naqab",
+    "collection": "Naqab",
+    "season": "2026",
+    "description": "Naqab lookbook",
+    "pdfUrl": null
+  }
+]

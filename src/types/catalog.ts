@@ -66,6 +66,7 @@ export type CatalogDto = {
   processingMessage: string;
   processingError: string;
   coverImageUrl: string | null;
+  sourceUrl: string;
   originalFilename: string;
   sourceSize: number;
   allowDownload: boolean;

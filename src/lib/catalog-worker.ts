@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
 import { connectDb } from "@/lib/db";
-import { deletePrefix, downloadObject, uploadObject } from "@/lib/storage";
+import { deletePrefix, downloadObject, uploadFile, uploadObject } from "@/lib/storage";
+import { downloadRemotePdf } from "@/lib/remote-source";
+import { getConfig } from "@/lib/config";
 import { Catalog } from "@/models/Catalog";
 import { ProcessingJob } from "@/models/ProcessingJob";
 import type { ProductLink } from "@/types/catalog";
@@ -61,7 +63,7 @@ async function renderPage(pdfPath: string, page: number, workDir: string) {
 export async function processCatalog(catalogId: string) {
   await connectDb();
   const catalog = await Catalog.findById(catalogId);
-  if (!catalog?.sourceKey) throw new Error("Catalog source PDF is missing.");
+  if (!catalog?.sourceKey && !catalog?.sourceUrl) throw new Error("Catalog source PDF URL is missing.");
 
   const workDir = await mkdtemp(join(tmpdir(), "rk-catalog-"));
   const pdfPath = join(workDir, "source.pdf");
@@ -93,12 +95,30 @@ export async function processCatalog(catalogId: string) {
       processingMessage: "Downloading source PDF...",
       processingError: "",
     });
-    await downloadObject(catalog.sourceKey, pdfPath);
+    let sourceKey = catalog.sourceKey;
+    let sourceDetails: { size: number; contentType: string; finalUrl: string } | undefined;
+    if (sourceKey) {
+      await downloadObject(sourceKey, pdfPath);
+    } else {
+      sourceDetails = await downloadRemotePdf(catalog.sourceUrl, pdfPath, getConfig().MAX_PDF_SIZE_MB * 1024 * 1024);
+    }
     const file = await open(pdfPath, "r");
     const headerBuffer = Buffer.alloc(5);
     await file.read(headerBuffer, 0, 5, 0);
     await file.close();
     if (headerBuffer.toString("ascii") !== "%PDF-") throw new Error("The uploaded file is not a valid PDF document.");
+    if (!sourceKey && sourceDetails) {
+      sourceKey = `catalogs/${catalogId}/source/${randomUUID()}.pdf`;
+      await uploadFile(sourceKey, pdfPath, "application/pdf");
+      const pathName = catalog.sourceUrl ? new URL(catalog.sourceUrl).pathname.split("/").pop() || "catalog.pdf" : "catalog.pdf";
+      const originalFilename = decodeURIComponent(pathName).replace(/[^a-zA-Z0-9._-]/g, "-").slice(-120) || "catalog.pdf";
+      await Catalog.findByIdAndUpdate(catalogId, {
+        sourceKey,
+        sourceSize: sourceDetails.size,
+        sourceContentType: "application/pdf",
+        originalFilename: originalFilename.toLowerCase().endsWith(".pdf") ? originalFilename : `${originalFilename}.pdf`,
+      });
+    }
 
     await Catalog.findByIdAndUpdate(catalogId, { processingProgress: 5, processingMessage: "Inspecting document..." });
     const count = await pageCount(pdfPath);

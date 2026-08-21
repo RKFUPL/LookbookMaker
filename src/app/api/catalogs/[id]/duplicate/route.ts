@@ -25,6 +25,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       collectionName: source.collectionName,
       season: source.season,
       description: source.description,
+      sourceUrl: source.sourceUrl,
       status: source.pageCount ? "ready" : "draft",
       pageCount: source.pageCount,
       width: source.width || source.pages?.[0]?.width || 0,

@@ -154,6 +154,30 @@ export async function uploadObject(
   );
 }
 
+export async function uploadFile(
+  key: string,
+  filePath: string,
+  contentType: string,
+  cacheControl = "private, max-age=0, no-cache",
+) {
+  if (isLocal()) {
+    const destination = localObjectPath(key);
+    await mkdir(destination.slice(0, destination.lastIndexOf("\\")), { recursive: true });
+    await copyFile(filePath, destination);
+    return;
+  }
+  await storageClient().send(
+    new PutObjectCommand({
+      Bucket: getConfig().S3_BUCKET,
+      Key: key,
+      Body: createReadStream(filePath),
+      ContentType: contentType,
+      CacheControl: cacheControl,
+      ServerSideEncryption: (process.env.S3_SERVER_SIDE_ENCRYPTION || undefined) as ServerSideEncryption | undefined,
+    }),
+  );
+}
+
 export async function objectUrl(key: string) {
   const config = getConfig();
   if (isLocal()) return `${appUrl()}/api/storage/object?key=${encodeURIComponent(key)}`;

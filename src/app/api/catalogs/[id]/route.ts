@@ -10,6 +10,7 @@ import { deletePrefix } from "@/lib/storage";
 import { Catalog } from "@/models/Catalog";
 import { CatalogEvent } from "@/models/CatalogEvent";
 import { ProcessingJob } from "@/models/ProcessingJob";
+import { assertSafeRemoteUrl } from "@/lib/remote-source";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -36,9 +37,44 @@ export async function PUT(request: Request, context: Context) {
     await connectDb();
     const catalog = await findCatalog((await context.params).id);
     if (input.title && input.title !== catalog.title) catalog.slug = await uniqueSlug(`${input.title} ${input.season || catalog.season}`, String(catalog._id));
-    const { collection, ...details } = input;
-    Object.assign(catalog, details, { ...(collection ? { collectionName: collection } : {}), updatedBy: staff.userId });
+    const sourceChanged = input.sourceUrl !== undefined && input.sourceUrl !== (catalog.sourceUrl || "");
+    if (sourceChanged) {
+      if (catalog.status === "processing") throw new ApiError(409, "Wait for current processing to finish before changing the PDF source.");
+      if (!input.sourceUrl) throw new ApiError(400, "A PDF source URL is required.");
+      try {
+        await assertSafeRemoteUrl(input.sourceUrl);
+      } catch (reason) {
+        throw new ApiError(400, reason instanceof Error ? reason.message : "The PDF source URL is not allowed.", "INVALID_SOURCE_URL");
+      }
+    }
+    const { collection, sourceUrl, status, ...details } = input;
+    Object.assign(catalog, details, {
+      ...(collection ? { collectionName: collection } : {}),
+      ...(sourceUrl !== undefined ? { sourceUrl } : {}),
+      ...(status ? { status } : {}),
+      updatedBy: staff.userId,
+    });
+    if (sourceChanged) {
+      catalog.sourceKey = undefined;
+      catalog.sourceSize = undefined;
+      catalog.sourceEtag = undefined;
+      catalog.sourceContentType = undefined;
+      catalog.originalFilename = undefined;
+      catalog.pages = [];
+      catalog.pageCount = 0;
+      catalog.width = 0;
+      catalog.height = 0;
+      catalog.assetVersion = undefined;
+      catalog.status = "processing";
+      catalog.processingProgress = 1;
+      catalog.processingMessage = "Queued to fetch the source PDF...";
+      catalog.processingError = "";
+    }
     await catalog.save();
+    if (sourceChanged) {
+      await ProcessingJob.deleteMany({ catalogId: catalog._id, status: { $in: ["queued", "failed"] } });
+      await ProcessingJob.create({ catalogId: catalog._id, status: "queued", availableAt: new Date() });
+    }
     return NextResponse.json({ catalog: await serializeCatalog(catalog) });
   } catch (error) { return apiError(error); }
 }

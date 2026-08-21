@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { connectDb } from "@/lib/db";
 import { requireStaff } from "@/lib/auth";
-import { apiError, readJson } from "@/lib/http";
+import { apiError, ApiError, readJson } from "@/lib/http";
 import { catalogCreateSchema } from "@/lib/validation";
 import { uniqueSlug } from "@/lib/slug";
 import { serializeCatalog } from "@/lib/catalog-serializer";
 import { Catalog } from "@/models/Catalog";
+import { ProcessingJob } from "@/models/ProcessingJob";
+import { assertSafeRemoteUrl } from "@/lib/remote-source";
 
 export async function GET(request: Request) {
   try {
@@ -41,10 +43,25 @@ export async function POST(request: Request) {
   try {
     const staff = await requireStaff();
     const input = catalogCreateSchema.parse(await readJson(request));
+    try {
+      await assertSafeRemoteUrl(input.sourceUrl);
+    } catch (reason) {
+      throw new ApiError(400, reason instanceof Error ? reason.message : "The PDF source URL is not allowed.", "INVALID_SOURCE_URL");
+    }
     await connectDb();
     const slug = await uniqueSlug(`${input.title} ${input.season}`);
     const { collection, ...details } = input;
-    const catalog = await Catalog.create({ ...details, collectionName: collection, slug, createdBy: staff.userId, updatedBy: staff.userId });
+    const catalog = await Catalog.create({
+      ...details,
+      collectionName: collection,
+      slug,
+      status: "processing",
+      processingProgress: 1,
+      processingMessage: "Queued to fetch the source PDF...",
+      createdBy: staff.userId,
+      updatedBy: staff.userId,
+    });
+    await ProcessingJob.create({ catalogId: catalog._id, status: "queued", availableAt: new Date() });
     return NextResponse.json({ catalog: await serializeCatalog(catalog) }, { status: 201 });
   } catch (error) {
     return apiError(error);

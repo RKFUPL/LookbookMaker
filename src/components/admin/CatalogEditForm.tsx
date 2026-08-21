@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Check, Clipboard, ExternalLink, FileText, LoaderCircle, RotateCcw, Send, Unlink, Upload } from "lucide-react";
+import { Check, Clipboard, ExternalLink, LoaderCircle, RotateCcw, Send, Unlink } from "lucide-react";
 import type { CatalogDto } from "@/types/catalog";
 
 async function request(url: string, options: RequestInit = {}) {
@@ -19,8 +19,6 @@ export function CatalogEditForm({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploading, setUploading] = useState(false);
 
   const load = useCallback(async () => {
     try { setCatalog((await request(`/api/catalogs/${id}`)).catalog); setError(""); }
@@ -33,15 +31,31 @@ export function CatalogEditForm({ id }: { id: string }) {
     return () => { active = false; };
   }, [id]);
 
+  async function pollProcessing() {
+    for (let attempt = 0; attempt < 900; attempt += 1) {
+      const current: CatalogDto = (await request(`/api/catalogs/${id}`)).catalog;
+      setCatalog(current);
+      if (current.status === "ready" || current.status === "published") return;
+      if (current.status === "error") throw new Error(current.processingError || "Catalog processing failed.");
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+    }
+    throw new Error("Processing is continuing in the background. Refresh this page shortly.");
+  }
+
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(""); setSaved(false);
     const data = new FormData(event.currentTarget);
     try {
+      const sourceUrl = String(data.get("sourceUrl") || "").trim();
+      const sourceChanged = sourceUrl !== (catalog?.sourceUrl || "");
       const body = await request(`/api/catalogs/${id}`, { method: "PUT", body: JSON.stringify({
         title: data.get("title"), collection: data.get("collection"), season: data.get("season"), description: data.get("description"),
+        sourceUrl,
         allowDownload: data.get("allowDownload") === "on", showBackButton: data.get("showBackButton") === "on",
       }) });
-      setCatalog(body.catalog); setSaved(true); window.setTimeout(() => setSaved(false), 1800);
+      setCatalog(body.catalog);
+      if (sourceChanged) await pollProcessing();
+      setSaved(true); window.setTimeout(() => setSaved(false), 1800);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Save failed."); }
     finally { setBusy(false); }
   }
@@ -51,35 +65,6 @@ export function CatalogEditForm({ id }: { id: string }) {
     try { const body = await request(`/api/catalogs/${id}/${path}`, { method: "POST" }); if (body.catalog) setCatalog(body.catalog); else await load(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Action failed."); }
     finally { setBusy(false); }
-  }
-
-  async function replacePdf(file: File | undefined) {
-    if (!file) return;
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) { setError("Choose a valid PDF file."); return; }
-    if (file.size > 250 * 1024 * 1024) { setError("The PDF exceeds the 250 MB upload limit."); return; }
-    setUploading(true); setUploadProgress(0); setError("");
-    try {
-      const initialized = await request(`/api/catalogs/${id}/upload`, { method: "POST", body: JSON.stringify({ kind: "pdf", filename: file.name, size: file.size, contentType: "application/pdf" }) });
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("PUT", initialized.uploadUrl);
-        xhr.setRequestHeader("Content-Type", initialized.headers["Content-Type"]);
-        xhr.upload.onprogress = (event) => { if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100)); };
-        xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed (${xhr.status}).`));
-        xhr.onerror = () => reject(new Error("Upload failed. Check your connection."));
-        xhr.send(file);
-      });
-      await request(`/api/catalogs/${id}/upload/complete`, { method: "POST", body: JSON.stringify({ kind: "pdf", key: initialized.key }) });
-      for (let attempt = 0; attempt < 900; attempt += 1) {
-        const current: CatalogDto = (await request(`/api/catalogs/${id}`)).catalog;
-        setCatalog(current); setUploadProgress(current.processingProgress);
-        if (current.status === "ready" || current.status === "published") return;
-        if (current.status === "error") throw new Error(current.processingError || "Catalog processing failed.");
-        await new Promise((resolve) => window.setTimeout(resolve, 2000));
-      }
-      throw new Error("Processing is continuing in the background. Refresh this page shortly.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "PDF replacement failed."); }
-    finally { setUploading(false); }
   }
 
   if (loading) return <main className="admin-content"><div className="skeleton" style={{ height: 520 }} /></main>;
@@ -105,6 +90,7 @@ export function CatalogEditForm({ id }: { id: string }) {
             <div className="field"><label htmlFor="collection">Collection</label><input className="input" id="collection" name="collection" defaultValue={catalog.collection} required maxLength={120} /></div>
             <div className="field"><label htmlFor="season">Season / year</label><input className="input" id="season" name="season" defaultValue={catalog.season} required maxLength={80} /></div>
             <div className="field wide"><label htmlFor="description">Description</label><textarea className="textarea" id="description" name="description" defaultValue={catalog.description} maxLength={2000} /></div>
+            <div className="field wide"><label htmlFor="sourceUrl">PDF storage URL</label><input className="input" id="sourceUrl" name="sourceUrl" type="url" defaultValue={catalog.sourceUrl} required placeholder="https://example.com/catalog.pdf" /><span className="field-hint">Changing this URL fetches the new PDF and rebuilds every optimized page.</span></div>
             <label className="check-row wide"><input type="checkbox" name="allowDownload" defaultChecked={catalog.allowDownload} /><span><strong>Allow original PDF download</strong><br /><span className="field-hint">Downloads use five-minute signed URLs and are tracked.</span></span></label>
             <label className="check-row wide"><input type="checkbox" name="showBackButton" defaultChecked={catalog.showBackButton} /><span><strong>Show viewer back button</strong></span></label>
           </div>
@@ -117,18 +103,10 @@ export function CatalogEditForm({ id }: { id: string }) {
             <div><span className="field-hint">Public address</span><div style={{ marginTop: 4, overflowWrap: "anywhere" }}>{catalog.publicUrl}</div></div>
             <div style={{ display: "flex", gap: 9 }}><button className="btn btn-secondary" type="button" onClick={async () => navigator.clipboard.writeText(`${window.location.origin}${catalog.publicUrl}`)}><Clipboard size={13} /> Copy link</button></div>
             <div><span className="field-hint">Optimized pages</span><div style={{ marginTop: 4 }}>{catalog.pageCount} pages</div></div>
-            <div><span className="field-hint">Source file</span><div style={{ marginTop: 4 }}>{catalog.originalFilename || "Not uploaded"}{catalog.sourceSize ? ` · ${(catalog.sourceSize / 1024 / 1024).toFixed(1)} MB` : ""}</div></div>
+            <div><span className="field-hint">PDF source</span><div style={{ marginTop: 4, overflowWrap: "anywhere" }}>{catalog.sourceUrl ? <a href={catalog.sourceUrl} target="_blank" rel="noreferrer">{catalog.sourceUrl}</a> : "Not configured"}</div></div>
+            <div><span className="field-hint">Stored copy</span><div style={{ marginTop: 4 }}>{catalog.originalFilename || "Not fetched"}{catalog.sourceSize ? ` · ${(catalog.sourceSize / 1024 / 1024).toFixed(1)} MB` : ""}</div></div>
             <div><span className="field-hint">Audience</span><div style={{ marginTop: 4 }}>{catalog.views.toLocaleString()} catalog views</div></div>
             {catalog.processingMessage && <div><span className="field-hint">Processing</span><div style={{ marginTop: 4 }}>{catalog.processingMessage}</div></div>}
-            {!['processing'].includes(catalog.status) && <div style={{ borderTop: "1px solid var(--line)", paddingTop: 16 }}>
-              <span className="field-hint">Source PDF</span>
-              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
-                <label className="btn btn-secondary" htmlFor="replace-pdf" style={{ cursor: uploading ? "wait" : "pointer" }}><Upload size={13} /> {uploading ? "Processing…" : catalog.sourceSize ? "Replace PDF" : "Upload PDF"}</label>
-                <input className="sr-only" id="replace-pdf" type="file" accept="application/pdf,.pdf" disabled={uploading} onChange={(event) => { void replacePdf(event.target.files?.[0]); event.currentTarget.value = ""; }} />
-                {!uploading && catalog.originalFilename && <span className="field-hint"><FileText size={13} style={{ verticalAlign: "-2px" }} /> {catalog.originalFilename}</span>}
-              </div>
-              {uploading && <><div className="progress-track"><div className="progress-bar" style={{ width: `${uploadProgress}%` }} /></div><div className="progress-meta"><span>{catalog.processingMessage || "Uploading and processing…"}</span><span>{uploadProgress}%</span></div></>}
-            </div>}
           </div>
         </aside>
       </form>

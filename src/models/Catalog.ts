@@ -42,6 +42,7 @@ const catalogSchema = new Schema(
       index: true,
     },
     sourceKey: String,
+    sourceUrl: String,
     sourceSize: Number,
     sourceEtag: String,
     sourceContentType: String,

@@ -33,6 +33,26 @@ const MAX_ZOOM = 3;
 const MAX_DECODED_PAGES = 12;
 const MAX_CACHED_ASSETS = 24;
 
+type ReaderPosition =
+  | { type: "cover"; page: number; engineIndex: number }
+  | { type: "spread"; leftPage: number | null; rightPage: number | null; engineIndex: number }
+  | { type: "back-cover"; page: number; engineIndex: number };
+
+type EnginePage = {
+  logicalPage: number | null;
+  sourcePage: PublicCatalogPage | null;
+  blank: boolean;
+};
+
+type BookModel = {
+  total: number;
+  positions: ReaderPosition[];
+  enginePages: EnginePage[];
+  positionByEngineIndex: Map<number, number>;
+  pageToEngineIndex: Map<number, number>;
+  pageToPositionIndex: Map<number, number>;
+};
+
 type AssetCacheRecord = {
   image: HTMLImageElement;
   promise: Promise<boolean>;
@@ -44,24 +64,150 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function requestedPageIndex() {
-  if (typeof window === "undefined") return 0;
+function requestedPageNumber() {
+  if (typeof window === "undefined") return 1;
   const page = Number(new URLSearchParams(window.location.search).get("page"));
-  return Number.isFinite(page) && page > 0 ? Math.max(0, Math.round(page) - 1) : 0;
+  return Number.isFinite(page) && page > 0 ? Math.max(1, Math.round(page)) : 1;
 }
 
-function visiblePageNumbers(index: number, orientation: PageFlipOrientation, total: number) {
-  if (orientation === "portrait" || index === 0 || index === total - 1) return [index + 1];
-  return [index + 1, Math.min(index + 2, total)].filter((page, position, list) => page <= total && list.indexOf(page) === position);
+function buildBookModel(pages: PublicCatalogPage[]): BookModel {
+  const sortedPages = [...pages].sort((a, b) => a.page - b.page);
+  const total = sortedPages.length;
+  const pageMap = new Map(sortedPages.map((page) => [page.page, page]));
+  const positions: ReaderPosition[] = [];
+  const enginePages: EnginePage[] = [];
+  const positionByEngineIndex = new Map<number, number>();
+  const pageToEngineIndex = new Map<number, number>();
+  const pageToPositionIndex = new Map<number, number>();
+
+  if (!total) return { total, positions, enginePages, positionByEngineIndex, pageToEngineIndex, pageToPositionIndex };
+
+  const coverIndex = enginePages.length;
+  enginePages.push({ logicalPage: 1, sourcePage: pageMap.get(1) || sortedPages[0] || null, blank: false });
+  positions.push({ type: "cover", page: 1, engineIndex: coverIndex });
+  positionByEngineIndex.set(coverIndex, 0);
+  pageToEngineIndex.set(1, coverIndex);
+  pageToPositionIndex.set(1, 0);
+
+  let nextInteriorPage = 2;
+  while (nextInteriorPage <= total - 1) {
+    const leftPage = nextInteriorPage + 1 <= total - 1 ? nextInteriorPage : null;
+    const rightPage = leftPage === null ? nextInteriorPage : nextInteriorPage + 1;
+    const engineIndex = enginePages.length;
+    const positionIndex = positions.length;
+
+    // A single interior page belongs on the right side of the final spread.
+    // The blank left leaf is required to keep the back cover physically separate.
+    enginePages.push({ logicalPage: leftPage, sourcePage: leftPage ? pageMap.get(leftPage) || null : null, blank: leftPage === null });
+    enginePages.push({ logicalPage: rightPage, sourcePage: pageMap.get(rightPage) || null, blank: false });
+    positions.push({ type: "spread", leftPage, rightPage, engineIndex });
+    positionByEngineIndex.set(engineIndex, positionIndex);
+    positionByEngineIndex.set(engineIndex + 1, positionIndex);
+    if (leftPage !== null) {
+      pageToEngineIndex.set(leftPage, engineIndex);
+      pageToPositionIndex.set(leftPage, positionIndex);
+      pageToEngineIndex.set(rightPage, engineIndex + 1);
+      pageToPositionIndex.set(rightPage, positionIndex);
+    } else {
+      pageToEngineIndex.set(rightPage, engineIndex + 1);
+      pageToPositionIndex.set(rightPage, positionIndex);
+    }
+    nextInteriorPage = leftPage === null ? total : nextInteriorPage + 2;
+  }
+
+  if (total > 1) {
+    const backIndex = enginePages.length;
+    const positionIndex = positions.length;
+    enginePages.push({ logicalPage: total, sourcePage: pageMap.get(total) || sortedPages[total - 1] || null, blank: false });
+    positions.push({ type: "back-cover", page: total, engineIndex: backIndex });
+    positionByEngineIndex.set(backIndex, positionIndex);
+    pageToEngineIndex.set(total, backIndex);
+    pageToPositionIndex.set(total, positionIndex);
+  }
+
+  return { total, positions, enginePages, positionByEngineIndex, pageToEngineIndex, pageToPositionIndex };
 }
 
-function pageRangeLabel(index: number, orientation: PageFlipOrientation, total: number) {
-  const visible = visiblePageNumbers(index, orientation, total);
+function positionIndexForEngineIndex(model: BookModel, index: number) {
+  if (!model.positions.length) return 0;
+  const exact = model.positionByEngineIndex.get(index);
+  if (exact !== undefined) return exact;
+  let nearest = 0;
+  model.positions.forEach((position, positionIndex) => {
+    if (position.engineIndex <= index) nearest = positionIndex;
+  });
+  return nearest;
+}
+
+function engineIndexForPage(model: BookModel, pageNumber: number, orientation: PageFlipOrientation) {
+  const page = clamp(pageNumber, 1, Math.max(1, model.total));
+  if (orientation === "portrait") return model.pageToEngineIndex.get(page) ?? 0;
+  const positionIndex = model.pageToPositionIndex.get(page) ?? 0;
+  return model.positions[positionIndex]?.engineIndex ?? 0;
+}
+
+function visiblePageNumbers(model: BookModel, index: number, orientation: PageFlipOrientation) {
+  if (!model.positions.length) return [];
+  const position = model.positions[positionIndexForEngineIndex(model, index)];
+  if (!position) return [];
+  if (position.type === "cover") return [position.page];
+  if (position.type === "back-cover") return [position.page];
+  if (orientation === "portrait") {
+    const page = model.enginePages[index]?.logicalPage;
+    if (page !== null && page !== undefined) return [page];
+    return position.rightPage !== null ? [position.rightPage] : position.leftPage !== null ? [position.leftPage] : [];
+  }
+  return [position.leftPage, position.rightPage].filter((page): page is number => page !== null);
+}
+
+function pageRangeLabel(model: BookModel, index: number, orientation: PageFlipOrientation) {
+  const visible = visiblePageNumbers(model, index, orientation);
+  const total = model.total;
   return `${visible.join("–")} / ${total}`;
 }
 
 function pageAsset(page: PublicCatalogPage, large: boolean) {
   return large ? page.largeUrl || page.mediumUrl : page.mediumUrl || page.largeUrl;
+}
+
+function updatePageUrl(page: number, mode: "push" | "replace") {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  params.set("page", String(page));
+  const url = `${window.location.pathname}?${params.toString()}`;
+  if (mode === "push") window.history.pushState(null, "", url);
+  else window.history.replaceState(null, "", url);
+}
+
+function portraitTargetEngineIndex(model: BookModel, currentIndex: number, direction: "next" | "prev") {
+  const currentPositionIndex = positionIndexForEngineIndex(model, currentIndex);
+  const currentPosition = model.positions[currentPositionIndex];
+  if (!currentPosition) return null;
+
+  if (currentPosition.type === "spread") {
+    if (direction === "next" && currentPosition.leftPage !== null && currentIndex === currentPosition.engineIndex) {
+      return currentPosition.engineIndex + 1;
+    }
+    if (direction === "prev" && currentPosition.leftPage !== null && currentIndex === currentPosition.engineIndex + 1) {
+      return currentPosition.engineIndex;
+    }
+  }
+
+  const targetPositionIndex = currentPositionIndex + (direction === "next" ? 1 : -1);
+  const targetPosition = model.positions[targetPositionIndex];
+  if (!targetPosition) return null;
+  if (targetPosition.type === "spread") {
+    // If the final interior spread has a mathematically required blank leaf,
+    // enter it on the real page and leave it the same way.
+    return direction === "next" && targetPosition.leftPage === null
+      ? targetPosition.engineIndex + 1
+      : direction === "prev" && targetPosition.leftPage === null
+        ? targetPosition.engineIndex + 1
+        : direction === "prev"
+          ? targetPosition.engineIndex + 1
+          : targetPosition.engineIndex;
+  }
+  return targetPosition.engineIndex;
 }
 
 function dispatchAnalytics(url: string, payload: Record<string, unknown>) {
@@ -89,27 +235,26 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   const [reader, setReader] = useState<PublicCatalogDto | null>(catalog.pages?.length ? catalog : null);
   const [catalogRetry, setCatalogRetry] = useState(0);
   const [loadError, setLoadError] = useState("");
-  const [currentIndex, setCurrentIndex] = useState(requestedPageIndex);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [orientation, setOrientation] = useState<PageFlipOrientation>("landscape");
   const [flipState, setFlipState] = useState("read");
-  const [coverMode, setCoverMode] = useState(() => requestedPageIndex() === 0);
-  const [coverLeaving, setCoverLeaving] = useState(false);
+  const [bookAlignment, setBookAlignment] = useState<ReaderPosition["type"]>("cover");
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [drawer, setDrawer] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [notice, setNotice] = useState("");
-  const [pageInput, setPageInput] = useState(() => String(requestedPageIndex() + 1));
+  const [pageInput, setPageInput] = useState(() => String(requestedPageNumber()));
 
   const shellRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLElement>(null);
   const bookHostRef = useRef<HTMLDivElement>(null);
   const flipRef = useRef<PageFlipInstance | null>(null);
-  const imageRefs = useRef<HTMLImageElement[]>([]);
-  const pageMediaRefs = useRef<HTMLDivElement[]>([]);
+  const imageRefs = useRef<(HTMLImageElement | null)[]>([]);
+  const pageMediaRefs = useRef<(HTMLDivElement | null)[]>([]);
   const decodedOrderRef = useRef<number[]>([]);
   const hydrateAssetsRef = useRef<(center: number, forceLarge?: boolean) => void>(() => undefined);
-  const prepareSpreadRef = useRef<(center: number) => Promise<boolean>>(async () => true);
+  const prepareSpreadRef = useRef<(positionIndex: number) => Promise<boolean>>(async () => true);
   const assetCacheRef = useRef(new Map<string, AssetCacheRecord>());
   const panStartRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null);
   const panDraftRef = useRef({ x: 0, y: 0 });
@@ -121,9 +266,13 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   const lastTapRef = useRef(0);
   const analyticsSentRef = useRef(new Set<string>());
   const zoomRef = useRef(zoom);
+  const navigationPendingRef = useRef(false);
+  const historyModeRef = useRef<"push" | "replace">("replace");
+  const initializingRef = useRef(true);
 
   const activeCatalog = reader || catalog;
   const pages = useMemo(() => [...(reader?.pages || [])].sort((a, b) => a.page - b.page), [reader?.pages]);
+  const bookModel = useMemo(() => buildBookModel(pages), [pages]);
 
   useEffect(() => {
     if (catalog.pages?.length) return;
@@ -201,27 +350,32 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       pageMediaRefs.current = [];
       decodedOrderRef.current = [];
 
-      const pageElements = pages.map((page, index) => {
+      const pageElements = bookModel.enginePages.map((enginePage, index) => {
+        const page = enginePage.sourcePage;
         const element = document.createElement("section");
         element.className = "rk-flip-page";
-        element.dataset.page = String(page.page);
-        if (index === 0 || index === pages.length - 1) element.dataset.density = "hard";
+        element.dataset.page = enginePage.logicalPage === null ? "blank" : String(enginePage.logicalPage);
+        if (index === 0 || index === bookModel.enginePages.length - 1) element.dataset.density = "hard";
         else element.dataset.density = "soft";
 
         const media = document.createElement("div");
-        media.className = "rk-page-media";
-        media.style.setProperty("--page-ratio", `${page.width} / ${page.height}`);
+        media.className = `rk-page-media${enginePage.blank ? " is-blank" : ""}`;
+        const pageWidth = page?.width || pages[0].width;
+        const pageHeight = page?.height || pages[0].height;
+        media.style.setProperty("--page-ratio", `${pageWidth} / ${pageHeight}`);
         pageMediaRefs.current[index] = media;
 
         const placeholder = document.createElement("div");
         placeholder.className = "rk-page-placeholder";
-        placeholder.innerHTML = '<span class="rk-page-mark">RK</span><i></i>';
+        placeholder.innerHTML = enginePage.blank ? "" : '<span class="rk-page-mark">RK</span><i></i>';
 
-        const image = document.createElement("img");
-        image.alt = `${activeCatalog.title}, page ${page.page}`;
-        image.decoding = "async";
-        image.draggable = false;
+        const image = page ? document.createElement("img") : null;
         imageRefs.current[index] = image;
+        if (image && page) {
+          image.alt = `${activeCatalog.title}, page ${page.page}`;
+          image.decoding = "async";
+          image.draggable = false;
+        }
 
         const retry = document.createElement("button");
         retry.type = "button";
@@ -229,34 +383,37 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         retry.textContent = "Retry page";
         retry.addEventListener("click", (event) => {
           event.stopPropagation();
+          if (!image) return;
           image.dataset.retries = "0";
           image.dataset.asset = "";
           media.classList.remove("has-error", "is-loaded");
           hydrateAssetsRef.current(index, true);
         });
 
-        image.addEventListener("load", () => {
-          image.dataset.retries = "0";
-          media.classList.remove("has-error");
-          media.classList.add("is-loaded");
-        });
-        image.addEventListener("error", () => {
-          const attempts = Number(image.dataset.retries || 0);
-          if (attempts < 2) {
-            image.dataset.retries = String(attempts + 1);
-            const source = image.dataset.asset || "";
-            window.setTimeout(() => {
-              if (!source) return;
-              image.removeAttribute("src");
-              requestAnimationFrame(() => { image.src = source; });
-            }, 450 * (attempts + 1));
-            return;
-          }
-          media.classList.remove("is-loaded");
-          media.classList.add("has-error");
-        });
+        if (image) {
+          image.addEventListener("load", () => {
+            image.dataset.retries = "0";
+            media.classList.remove("has-error");
+            media.classList.add("is-loaded");
+          });
+          image.addEventListener("error", () => {
+            const attempts = Number(image.dataset.retries || 0);
+            if (attempts < 2) {
+              image.dataset.retries = String(attempts + 1);
+              const source = image.dataset.asset || "";
+              window.setTimeout(() => {
+                if (!source) return;
+                image.removeAttribute("src");
+                requestAnimationFrame(() => { image.src = source; });
+              }, 450 * (attempts + 1));
+              return;
+            }
+            media.classList.remove("is-loaded");
+            media.classList.add("has-error");
+          });
+        }
 
-        for (const product of page.productLinks || []) {
+        for (const product of page?.productLinks || []) {
           try {
             const target = new URL(product.href, window.location.origin);
             if (!['http:', 'https:'].includes(target.protocol)) continue;
@@ -274,15 +431,18 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
           } catch { /* Ignore invalid product URLs in public content. */ }
         }
 
-        media.prepend(placeholder, image);
-        media.appendChild(retry);
+        media.prepend(placeholder);
+        if (image) media.appendChild(image);
+        if (page) media.appendChild(retry);
         element.appendChild(media);
         return element;
       });
 
       const first = pages[0];
       const ratio = first.width > 0 && first.height > 0 ? first.height / first.width : 1.414;
-      const requested = clamp(Number(new URLSearchParams(window.location.search).get("page")) || 1, 1, pages.length) - 1;
+      const requestedPage = clamp(requestedPageNumber(), 1, bookModel.total);
+      const initialOrientation = window.innerWidth <= 640 || (stageRef.current?.clientWidth || window.innerWidth) < 640 ? "portrait" : "landscape";
+      const requested = engineIndexForPage(bookModel, requestedPage, initialOrientation);
 
       instance = new PageFlip(mount, {
         width: 1000,
@@ -298,6 +458,8 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         usePortrait: true,
         autoSize: false,
         maxShadowOpacity: 0.34,
+        // The first and last engine leaves are real hard covers. Interior leaves
+        // remain soft, while the logical model keeps PDF numbering separate.
         showCover: true,
         // page-flip registers a non-passive touch listener only when this is true.
         // The stage's touch-action:none still prevents page scrolling while keeping
@@ -354,9 +516,12 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       };
 
       const spreadIndices = (center: number, engineOrientation: PageFlipOrientation) => {
-        const normalized = engineOrientation === "landscape" && center > 0 && center < pages.length - 1 && center % 2 === 0 ? center - 1 : center;
-        if (engineOrientation === "portrait" || normalized === 0 || normalized === pages.length - 1) return [normalized];
-        return [normalized, Math.min(normalized + 1, pages.length - 1)];
+        const positionIndex = positionIndexForEngineIndex(bookModel, center);
+        const position = bookModel.positions[positionIndex];
+        if (!position) return [];
+        if (engineOrientation === "portrait") return [center];
+        if (position.type === "spread") return [position.engineIndex, position.engineIndex + 1];
+        return [position.engineIndex];
       };
 
       const setPageSource = (pageIndex: number, source: string) => {
@@ -372,7 +537,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       };
 
       const primePage = (pageIndex: number, requestLarge: boolean) => {
-        const page = pages[pageIndex];
+        const page = bookModel.enginePages[pageIndex]?.sourcePage;
         if (!page) return;
         const previewSource = pageAsset(page, false);
         setPageSource(pageIndex, previewSource);
@@ -396,24 +561,28 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
 
       const loadWindow = (center: number, forceLarge = false) => {
         const engineOrientation = instance?.getOrientation() || (window.innerWidth <= 640 ? "portrait" : "landscape");
-        const normalizedCenter = engineOrientation === "landscape" && center > 0 && center < pages.length - 1 && center % 2 === 0 ? center - 1 : center;
-        const isInitialPage = normalizedCenter === 0;
-        const radiusBefore = isInitialPage ? 0 : (engineOrientation === "landscape" ? 2 : 1);
-        const radiusAfter = isInitialPage ? 4 : (engineOrientation === "landscape" ? 4 : 2);
+        const centerPositionIndex = positionIndexForEngineIndex(bookModel, center);
+        const isInitialPage = centerPositionIndex === 0;
+        const radiusBefore = isInitialPage ? 0 : (engineOrientation === "landscape" ? 1 : 2);
+        const radiusAfter = isInitialPage ? 2 : (engineOrientation === "landscape" ? 2 : 3);
         const desired = new Set<number>();
-        for (let pageIndex = Math.max(0, normalizedCenter - radiusBefore); pageIndex <= Math.min(pages.length - 1, normalizedCenter + radiusAfter); pageIndex += 1) desired.add(pageIndex);
+        for (let positionIndex = Math.max(0, centerPositionIndex - radiusBefore); positionIndex <= Math.min(bookModel.positions.length - 1, centerPositionIndex + radiusAfter); positionIndex += 1) {
+          const position = bookModel.positions[positionIndex];
+          desired.add(position.engineIndex);
+          if (position.type === "spread") desired.add(position.engineIndex + 1);
+        }
 
         const stageWidth = stageRef.current?.clientWidth || window.innerWidth;
         const visibleWidth = engineOrientation === "landscape" ? stageWidth / 2 : stageWidth;
         const highDensity = forceLarge || visibleWidth * window.devicePixelRatio > 1450;
-        const active = new Set(spreadIndices(normalizedCenter, engineOrientation));
+        const active = new Set(spreadIndices(center, engineOrientation));
 
         for (const pageIndex of desired) {
           primePage(pageIndex, highDensity && active.has(pageIndex));
         }
 
         let guard = 0;
-        while (decodedOrderRef.current.length > MAX_DECODED_PAGES && guard < pages.length * 2) {
+        while (decodedOrderRef.current.length > MAX_DECODED_PAGES && guard < bookModel.enginePages.length * 2) {
           guard += 1;
           const candidate = decodedOrderRef.current.shift();
           if (candidate === undefined) break;
@@ -429,9 +598,14 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         }
       };
 
-      const prepareSpread = async (center: number) => {
-        const engineOrientation = instance?.getOrientation() || (window.innerWidth <= 640 ? "portrait" : "landscape");
-        const ready = await Promise.all(spreadIndices(center, engineOrientation).map((pageIndex) => preloadAsset(pageAsset(pages[pageIndex], false))));
+      const prepareSpread = async (positionIndex: number) => {
+        const position = bookModel.positions[positionIndex];
+        if (!position) return false;
+        const indices = position.type === "spread" ? [position.engineIndex, position.engineIndex + 1] : [position.engineIndex];
+        const ready = await Promise.all(indices
+          .map((pageIndex) => bookModel.enginePages[pageIndex]?.sourcePage)
+          .filter((page): page is PublicCatalogPage => Boolean(page))
+          .map((page) => preloadAsset(pageAsset(page, false))));
         return ready.every(Boolean);
       };
 
@@ -439,10 +613,16 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       prepareSpreadRef.current = prepareSpread;
       instance.on<number>("flip", ({ data }) => {
         const index = Number(data) || 0;
+        const engineOrientation = instance?.getOrientation() || "landscape";
+        const position = bookModel.positions[positionIndexForEngineIndex(bookModel, index)];
+        const visible = visiblePageNumbers(bookModel, index, engineOrientation);
+        const logicalPage = visible[0] || 1;
         setCurrentIndex(index);
-        setPageInput(String(index + 1));
-        setCoverMode(index === 0);
-        setCoverLeaving(false);
+        setPageInput(String(logicalPage));
+        if (position) setBookAlignment(position.type);
+        navigationPendingRef.current = false;
+        updatePageUrl(logicalPage, initializingRef.current ? "replace" : historyModeRef.current);
+        historyModeRef.current = "push";
         panDraftRef.current = { x: 0, y: 0 };
         setPan({ x: 0, y: 0 });
         loadWindow(index, false);
@@ -466,12 +646,20 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       });
       instance.on<{ page: number; mode: PageFlipOrientation }>("init", ({ data }) => {
         setOrientation(data.mode);
-        setCurrentIndex(data.page);
-        setPageInput(String(data.page + 1));
-        loadWindow(data.page, false);
+        const targetIndex = engineIndexForPage(bookModel, requestedPageNumber(), data.mode);
+        if (instance && instance.getCurrentPageIndex() !== targetIndex) instance.turnToPage(targetIndex);
+        const index = instance?.getCurrentPageIndex() || targetIndex;
+        const position = bookModel.positions[positionIndexForEngineIndex(bookModel, index)];
+        const visible = visiblePageNumbers(bookModel, index, data.mode);
+        setCurrentIndex(index);
+        setBookAlignment(position?.type || "cover");
+        setPageInput(String(visible[0] || 1));
+        updatePageUrl(visible[0] || 1, "replace");
+        initializingRef.current = false;
+        loadWindow(index, false);
       });
-      instance.loadFromHTML(pageElements);
       flipRef.current = instance;
+      instance.loadFromHTML(pageElements);
         } catch {
           if (!cancelled) setLoadError("The catalog reader could not be initialized.");
         }
@@ -494,15 +682,13 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       instance?.destroy();
       host.replaceChildren();
     };
-  }, [activeCatalog.title, pages]);
+  }, [activeCatalog.title, bookModel, pages]);
 
   useEffect(() => {
     if (!pages.length) return;
-    const params = new URLSearchParams(window.location.search);
-    params.set("page", String(currentIndex + 1));
-    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+    const visible = visiblePageNumbers(bookModel, currentIndex, orientation);
+    const page = visible[0] || 1;
     if (preview) return;
-    const page = currentIndex + 1;
     const key = `${activeCatalog.id}:${page}`;
     const timer = window.setTimeout(() => {
       if (analyticsSentRef.current.has(key)) return;
@@ -518,34 +704,60 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       dispatchAnalytics(`/api/catalogs/${activeCatalog.id}/view`, { type, page, sessionId });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [activeCatalog.id, currentIndex, pages.length, preview]);
+  }, [activeCatalog.id, bookModel, currentIndex, orientation, pages.length, preview]);
 
   const requestFlip = useCallback((direction: "next" | "prev") => {
-    if (!pages.length || flipState !== "read") return;
-    const step = orientation === "portrait" ? 1 : currentIndex === 0 ? 1 : 2;
-    const target = direction === "next" ? currentIndex + step : currentIndex - (currentIndex === pages.length - 1 && orientation === "landscape" ? 2 : step);
-    if (target < 0 || target >= pages.length) return;
-    void prepareSpreadRef.current(target).then((ready) => {
-      if (!ready || !flipRef.current) return;
-      if (direction === "next" && currentIndex === 0) setCoverLeaving(true);
-      if (direction === "next") flipRef.current.flipNext("top");
+    if (!bookModel.positions.length || flipState !== "read" || navigationPendingRef.current) return;
+    const currentPositionIndex = positionIndexForEngineIndex(bookModel, currentIndex);
+    const targetPositionIndex = currentPositionIndex + (direction === "next" ? 1 : -1);
+    const targetPosition = bookModel.positions[targetPositionIndex];
+    if (!targetPosition) return;
+    const targetEngineIndex = orientation === "portrait"
+      ? portraitTargetEngineIndex(bookModel, currentIndex, direction)
+      : targetPosition.engineIndex;
+    if (targetEngineIndex === null || targetEngineIndex === currentIndex) return;
+
+    navigationPendingRef.current = true;
+    historyModeRef.current = "push";
+    void prepareSpreadRef.current(targetPositionIndex).then((ready) => {
+      if (!ready || !flipRef.current) {
+        navigationPendingRef.current = false;
+        return;
+      }
+      setBookAlignment(targetPosition.type);
+      if (orientation === "portrait") flipRef.current.flip(targetEngineIndex, "top");
+      else if (direction === "next") flipRef.current.flipNext("top");
       else flipRef.current.flipPrev("top");
     });
-  }, [currentIndex, flipState, orientation, pages.length]);
+  }, [bookModel, currentIndex, flipState, orientation]);
 
-  const goToPage = useCallback((pageNumber: number, animate = true) => {
-    if (!pages.length) return;
-    const target = clamp(Math.round(pageNumber), 1, pages.length) - 1;
+  const goToPage = useCallback((pageNumber: number, animate = true, historyMode: "push" | "replace" = "push") => {
+    if (!bookModel.total || navigationPendingRef.current) return;
+    const targetPage = clamp(Math.round(pageNumber), 1, bookModel.total);
+    const targetPositionIndex = bookModel.pageToPositionIndex.get(targetPage) ?? 0;
+    const targetPosition = bookModel.positions[targetPositionIndex];
+    const target = engineIndexForPage(bookModel, targetPage, orientation);
+    if (!targetPosition) return;
     setDrawer(false);
-    void prepareSpreadRef.current(target).then((ready) => {
-      if (!ready) return;
+    navigationPendingRef.current = true;
+    historyModeRef.current = historyMode;
+    void prepareSpreadRef.current(targetPositionIndex).then((ready) => {
+      if (!ready) {
+        navigationPendingRef.current = false;
+        return;
+      }
       hydrateAssetsRef.current(target, zoom > 1.2);
       window.setTimeout(() => {
-        if (animate && target !== currentIndex) flipRef.current?.flip(target, "top");
-        else flipRef.current?.turnToPage(target);
+        if (!flipRef.current) {
+          navigationPendingRef.current = false;
+          return;
+        }
+        setBookAlignment(targetPosition.type);
+        if (animate && target !== currentIndex) flipRef.current.flip(target, "top");
+        else flipRef.current.turnToPage(target);
       }, 35);
     });
-  }, [currentIndex, pages.length, zoom]);
+  }, [bookModel, currentIndex, orientation, zoom]);
 
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
@@ -553,12 +765,20 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       if (event.key === "ArrowRight" || event.key === "PageDown") requestFlip("next");
       if (event.key === "ArrowLeft" || event.key === "PageUp") requestFlip("prev");
       if (event.key === "Home") goToPage(1, false);
-      if (event.key === "End" && pages.length) goToPage(pages.length, false);
+       if (event.key === "End" && bookModel.total) goToPage(bookModel.total, false);
       if (event.key === "Escape") setDrawer(false);
     }
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [goToPage, pages.length, requestFlip]);
+  }, [bookModel.total, goToPage, requestFlip]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      goToPage(requestedPageNumber(), true, "replace");
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [goToPage]);
 
   useEffect(() => {
     function changed() {
@@ -710,7 +930,8 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   }
 
   async function share() {
-    const url = `${window.location.origin}${activeCatalog.publicUrl}?page=${currentIndex + 1}`;
+    const currentVisible = visiblePageNumbers(bookModel, currentIndex, orientation);
+    const url = `${window.location.origin}${activeCatalog.publicUrl}?page=${currentVisible[0] || 1}`;
     try {
       if (navigator.share) await navigator.share({ title: activeCatalog.title, text: activeCatalog.description, url });
       else {
@@ -736,10 +957,10 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     );
   }
 
-  const canPrevious = currentIndex > 0 && flipState === "read";
-  const canNext = currentIndex < pages.length - 1 && flipState === "read";
-  const visible = visiblePageNumbers(currentIndex, orientation, pages.length);
-  const coverSource = activeCatalog.coverImageUrl || pages[0]?.largeUrl || pages[0]?.mediumUrl || pages[0]?.thumbnailUrl;
+  const currentPositionIndex = positionIndexForEngineIndex(bookModel, currentIndex);
+  const canPrevious = currentPositionIndex > 0 && flipState === "read";
+  const canNext = currentPositionIndex < bookModel.positions.length - 1 && flipState === "read";
+  const visible = visiblePageNumbers(bookModel, currentIndex, orientation);
 
   return (
     <div className={`catalog-viewer rk-reader ${preview ? "preview-viewer" : ""} ${zoom > 1 ? "is-zoomed" : ""}`} ref={shellRef}>
@@ -769,13 +990,9 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
           <h1>{activeCatalog.title}</h1>
           {activeCatalog.description && <p>{activeCatalog.description}</p>}
         </div>
-        {coverMode && coverSource && <button className={`rk-cover-layer ${coverLeaving ? "is-leaving" : ""}`} type="button" aria-label="Open catalog cover" onClick={() => requestFlip("next")} style={{ aspectRatio: `${pages[0].width} / ${pages[0].height}` }}>
-          <img src={coverSource} alt={`${activeCatalog.title} cover`} decoding="async" />
-          <span>Open catalogue</span>
-        </button>}
         <button className="rk-reader-edge rk-reader-edge-left" type="button" aria-label="Previous page" disabled={!canPrevious} onClick={() => requestFlip("prev")}><ChevronLeft size={25} /></button>
         <div className="rk-reader-transform" style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}>
-          <div className={`rk-book-host ${coverMode ? "is-cover-hidden" : ""}`} ref={bookHostRef} />
+          <div className={`rk-book-host ${orientation === "landscape" ? "is-landscape" : "is-portrait"} ${bookAlignment === "cover" ? "is-cover-position" : bookAlignment === "back-cover" ? "is-back-cover-position" : "is-spread-position"}`} ref={bookHostRef} />
         </div>
         <button className="rk-reader-edge rk-reader-edge-right" type="button" aria-label="Next page" disabled={!canNext} onClick={() => requestFlip("next")}><ChevronRight size={25} /></button>
         <div className="rk-reader-hint" aria-hidden="true">Drag the page edge to turn</div>
@@ -789,7 +1006,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         <div className="rk-reader-pagination">
           <button className="rk-reader-icon" type="button" aria-label="Previous page" onClick={() => requestFlip("prev")} disabled={!canPrevious}><ChevronLeft size={20} /></button>
           <form onSubmit={submitPage} title="Enter a page number">
-            <input aria-label="Go to page" inputMode="numeric" value={pageInput} onChange={(event) => setPageInput(event.target.value.replace(/\D/g, "").slice(0, 4))} onBlur={() => { setPageInput(String(currentIndex + 1)); }} />
+            <input aria-label="Go to page" inputMode="numeric" value={pageInput} onChange={(event) => setPageInput(event.target.value.replace(/\D/g, "").slice(0, 4))} onBlur={() => { setPageInput(String(visible[0] || 1)); }} />
             <span>{orientation === "landscape" && visible.length > 1 ? `–${visible[1]}` : ""} / {pages.length}</span>
           </form>
           <button className="rk-reader-icon" type="button" aria-label="Next page" onClick={() => requestFlip("next")} disabled={!canNext}><ChevronRight size={20} /></button>
@@ -803,10 +1020,10 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
 
       <aside className={`rk-thumbnail-drawer ${drawer ? "is-open" : ""}`} aria-hidden={!drawer}>
         <div className="rk-thumbnail-heading">
-          <div><span>Pages</span><h2>{activeCatalog.title}</h2><p>{pageRangeLabel(currentIndex, orientation, pages.length)}</p></div>
+          <div><span>Pages</span><h2>{activeCatalog.title}</h2><p>{pageRangeLabel(bookModel, currentIndex, orientation)}</p></div>
           <button className="rk-reader-icon" type="button" aria-label="Close thumbnails" onClick={() => setDrawer(false)}><X size={18} /></button>
         </div>
-        {drawer && <div className="rk-thumbnail-grid">{pages.map((page, index) => <button type="button" className={visible.includes(page.page) ? "is-active" : ""} key={page.page} onClick={() => goToPage(index + 1, false)}><span style={{ aspectRatio: `${page.width}/${page.height}` }}><img src={page.thumbnailUrl} alt={`Page ${page.page}`} loading="lazy" decoding="async" /></span><em>{String(page.page).padStart(2, "0")}</em></button>)}</div>}
+        {drawer && <div className="rk-thumbnail-grid">{pages.map((page) => <button type="button" className={visible.includes(page.page) ? "is-active" : ""} key={page.page} onClick={() => goToPage(page.page, false)}><span style={{ aspectRatio: `${page.width}/${page.height}` }}><img src={page.thumbnailUrl} alt={`Page ${page.page}`} loading="lazy" decoding="async" /></span><em>{String(page.page).padStart(2, "0")}</em></button>)}</div>}
       </aside>
       {drawer && <button className="rk-drawer-scrim" type="button" aria-label="Close thumbnails" onClick={() => setDrawer(false)} />}
       {notice && <div className="rk-reader-toast">{notice}</div>}

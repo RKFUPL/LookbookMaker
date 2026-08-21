@@ -245,13 +245,17 @@ a { color: inherit; text-decoration: none; }
 .rk-reader.is-zoomed .rk-reader-transform { cursor: grab; transition-duration: .08s; }
 .rk-reader.is-zoomed .rk-reader-transform:active { cursor: grabbing; }
 .rk-book-host { position: relative; display: block; flex: 0 0 auto; max-width: 100%; max-height: 100%; min-width: 1px; min-height: 1px; touch-action: none; contain: layout; }
-.rk-book-host.is-cover-hidden .rk-book-engine { opacity: 0; pointer-events: none; }
+.rk-book-host.is-landscape .rk-book-engine { transition: transform .78s cubic-bezier(.25,.72,.22,1); will-change: transform; }
+.rk-book-host.is-landscape.is-cover-position .rk-book-engine { transform: translate3d(-25%, 0, 0); }
+.rk-book-host.is-landscape.is-spread-position .rk-book-engine { transform: translate3d(0, 0, 0); }
+.rk-book-host.is-landscape.is-back-cover-position .rk-book-engine { transform: translate3d(25%, 0, 0); }
 .rk-book-engine.stf__parent { width: 100% !important; height: 100% !important; max-width: none !important; min-width: 0 !important; min-height: 0 !important; touch-action: none !important; }
 .rk-book-engine .stf__wrapper { width: 100% !important; height: 100% !important; padding-bottom: 0 !important; }
 .rk-book-engine .stf__block { perspective: 2600px; filter: drop-shadow(0 24px 28px rgba(0,0,0,.34)); }
 .rk-book-engine .stf__block::after { content: ""; position: absolute; z-index: 8; top: 0; bottom: 0; left: 50%; width: 2px; pointer-events: none; background: linear-gradient(to right, rgba(25,20,17,.2), rgba(255,255,255,.18) 48%, rgba(25,20,17,.2)); opacity: .58; }
 .rk-flip-page { overflow: hidden; background: #eeeae1; color: #211e1a; }
 .rk-page-media { position: absolute; inset: 0; overflow: hidden; background: #eeeae1; }
+.rk-page-media.is-blank .rk-page-placeholder { display: none; }
 .rk-page-media img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain; opacity: 0; pointer-events: none; transition: opacity .24s ease; }
 .rk-page-media.is-loaded img { opacity: 1; }
 .rk-page-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 18px; color: #7e756b; background: linear-gradient(118deg, #e3ded5, #f1ede5 48%, #ddd8cf); transition: opacity .22s; }
