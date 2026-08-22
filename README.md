@@ -5,11 +5,13 @@ RK Lookbook Maker is a Next.js catalog studio and custom flipbook viewer for Ras
 ## Architecture
 
 ```text
-External HTTPS PDF (CORS enabled)
+External HTTPS PDF (server-fetchable)
         ↓
 MongoDB catalog metadata
         ↓
 Next.js on Render Free
+        ↓
+`/api/catalogs/:id/pdf` streaming proxy
         ↓
 PDF.js in the browser → custom RK page-flip UI
 ```
@@ -28,7 +30,7 @@ npm run dev
 
 Set `MONGODB_URI`, `AUTH_SECRET` (at least 32 characters), and `APP_URL`. `APP_URL` is required in production for canonical links and sharing.
 
-Create a staff account with `npm run seed:admin`, then open `/admin/catalogs/new`. Use an HTTPS PDF URL whose host permits browser CORS access. The import action stores the URL and metadata immediately; it does not start a server worker.
+Create a staff account with `npm run seed:admin`, then open `/admin/catalogs/new`. Use an HTTPS PDF URL that Render can fetch; browser CORS headers on the source host are not required. The import action stores the URL and metadata immediately; it does not start a server worker.
 
 ## Render Free deployment
 
@@ -37,7 +39,7 @@ Create a staff account with `npm run seed:admin`, then open `/admin/catalogs/new
 ## Source PDF requirements
 
 - HTTPS URL with no embedded credentials.
-- The PDF host should return `Content-Type: application/pdf`, allow cross-origin browser requests, and support byte-range requests for the best loading experience.
-- If the host blocks browser access, the viewer shows: `The PDF source does not allow browser access. Enable CORS on the PDF host or provide a compatible PDF source.`
+- The PDF host should return `Content-Type: application/pdf`; byte-range requests are forwarded for the best loading experience.
+- If the source is unavailable or invalid, the viewer shows: `Unable to load the source PDF.`
 
 Analytics requests are non-blocking. The public viewer supports direct `?page=N` links, spreads, touch/mouse page turns, zoom, fullscreen, thumbnails, sharing, and the original PDF download link.

@@ -56,7 +56,6 @@ export async function serializeCatalog(catalog: CatalogLike): Promise<CatalogDto
 }
 
 export async function serializePublicCatalog(catalog: CatalogLike): Promise<PublicCatalogDto> {
-  const pdfUrl = sourceUrl(catalog);
   return {
     id: String(catalog._id),
     title: catalog.title,
@@ -67,7 +66,6 @@ export async function serializePublicCatalog(catalog: CatalogLike): Promise<Publ
     pageCount: catalog.pageCount || 0,
     width: catalog.width || 0,
     height: catalog.height || 0,
-    sourcePdfUrl: pdfUrl,
     publicUrl: `${appUrl()}/catalog/${catalog.slug}`,
     downloadUrl: catalog.allowDownload ? `${appUrl()}/api/catalogs/${catalog.slug}/download` : null,
     settings: { allowDownload: catalog.allowDownload, showBackButton: catalog.showBackButton },

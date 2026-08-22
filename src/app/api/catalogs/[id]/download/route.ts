@@ -17,6 +17,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       referrer: request.headers.get("referer")?.slice(0, 500),
       userAgent: request.headers.get("user-agent")?.slice(0, 500),
     }).catch(() => undefined);
-    return NextResponse.redirect(new URL(sourceUrl), 307);
+    return NextResponse.redirect(new URL(`/api/catalogs/${catalog._id}/pdf?download=1`, request.url), 307);
   } catch (error) { return apiError(error); }
 }

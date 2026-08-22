@@ -9,7 +9,7 @@ import { Brand } from "@/components/Brand";
 
 const MAX_ZOOM = 3;
 const MAX_CACHE = 18;
-const CORS_ERROR = "The PDF source does not allow browser access. Enable CORS on the PDF host or provide a compatible PDF source.";
+const PDF_ERROR = "Unable to load the source PDF.";
 
 type BitmapRecord = { bitmap: ImageBitmap; lastUsed: number; key: string };
 
@@ -34,11 +34,6 @@ function dispatchAnalytics(url: string, payload: Record<string, unknown>) {
     if (navigator.sendBeacon?.(url, new Blob([body], { type: "application/json" }))) return;
   } catch { /* A non-blocking metric must never interrupt reading. */ }
   void fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => undefined);
-}
-
-function isCorsFailure(error: unknown) {
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  return message.includes("cors") || message.includes("network") || message.includes("fetch") || message.includes("unexpected response") || message.includes("failed to fetch");
 }
 
 export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCatalogDto; preview?: boolean }) {
@@ -170,20 +165,20 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       try {
         const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist");
         GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-        const task = getDocument({ url: catalog.sourcePdfUrl, rangeChunkSize: 65536, disableAutoFetch: false, disableStream: false, withCredentials: false });
+        const task = getDocument({ url: `/api/catalogs/${catalog.id}/pdf`, rangeChunkSize: 65536, disableAutoFetch: false, disableStream: false, withCredentials: false });
         const document = await task.promise;
         if (cancelled) return;
         setPdf(document);
         setPageCount(document.numPages);
         setLoading(false);
-      } catch (error) {
+      } catch {
         if (cancelled) return;
         setLoading(false);
-        setLoadError(isCorsFailure(error) ? CORS_ERROR : "This PDF could not be opened. Check the source URL and try again.");
+        setLoadError(PDF_ERROR);
       }
     })();
     return () => { cancelled = true; clearCache(); promises.clear(); };
-  }, [catalog.sourcePdfUrl, clearCache, retryKey]);
+  }, [catalog.id, clearCache, retryKey]);
 
   useEffect(() => {
     if (!pdf || !hostRef.current || !total) return;
