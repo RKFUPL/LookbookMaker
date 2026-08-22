@@ -13,6 +13,7 @@ const PDF_ERROR = "Unable to load this lookbook.";
 const PAGE_ERROR = "Unable to render page 1.";
 const WORKER_ERROR = "PDF viewer failed to initialize.";
 type PdfStage = "idle" | "loading-document" | "document-ready" | "loading-page" | "rendering-page" | "rendered" | "error";
+type ViewerState = "loading" | "cover-ready" | "reader-ready" | "error";
 
 type BitmapRecord = { canvas: HTMLCanvasElement; lastUsed: number; key: string };
 type PdfPageSize = { width: number; height: number };
@@ -71,6 +72,8 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   const [pageSize, setPageSize] = useState<PdfPageSize | null>(null);
   const [coverReady, setCoverReady] = useState(false);
   const [pdfStage, setPdfStage] = useState<PdfStage>("idle");
+  const [viewerState, setViewerState] = useState<ViewerState>("loading");
+  const [flipbookReady, setFlipbookReady] = useState(false);
   const [layoutReady, setLayoutReady] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [loadDiagnostic, setLoadDiagnostic] = useState("");
@@ -90,6 +93,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   const stageRef = useRef<HTMLElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const coverCanvasRef = useRef<HTMLCanvasElement>(null);
+  const visibleCoverCanvasRef = useRef<HTMLCanvasElement>(null);
   const flipRef = useRef<PageFlipInstance | null>(null);
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const mediaRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -293,6 +297,8 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     // The loading state belongs to the asynchronous PDF task, not to server rendering.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
+    setViewerState("loading");
+    setFlipbookReady(false);
     setPdfStage("loading-document");
     setLoadError("");
     setLoadDiagnostic("");
@@ -348,6 +354,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       } catch (error) {
         if (cancelled || loadLifecycleRef.current !== lifecycle) return;
         setLoading(false);
+        setViewerState("error");
         setPdfStage("error");
         setLoadError(userFacingPdfError(error));
         if (process.env.NODE_ENV !== "production") setLoadDiagnostic(error instanceof Error ? error.message : String(error));
@@ -390,6 +397,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         setPageSize(dimensions);
       } catch (error) {
         if (cancelled) return;
+        setViewerState("error");
         setLoadError(PAGE_ERROR);
         if (process.env.NODE_ENV !== "production") setLoadDiagnostic(error instanceof Error ? error.message : String(error));
         pdfLog("PAGE RENDER ERROR", { pageNumber: 1, phase: "cover" }, error);
@@ -437,9 +445,11 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         });
         setCoverReady(true);
         setPdfStage("rendered");
+        setViewerState("cover-ready");
         viewerLog("COVER READY", { width: rect.width, height: rect.height, canvasWidth: canvas.width, canvasHeight: canvas.height });
       } catch (error) {
         if (cancelled) return;
+        setViewerState("error");
         setLoadError(PAGE_ERROR);
         if (process.env.NODE_ENV !== "production") setLoadDiagnostic(error instanceof Error ? error.message : String(error));
         pdfLog("PAGE RENDER ERROR", { pageNumber: 1, phase: "cover" }, error);
@@ -447,6 +457,44 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     })();
     return () => { cancelled = true; };
   }, [pageSize, pdf, renderBitmap]);
+
+  useEffect(() => {
+    if (!pdf || !pageSize || !coverReady || !visibleCoverCanvasRef.current) return;
+    let cancelled = false;
+    const canvas = visibleCoverCanvasRef.current;
+    void (async () => {
+      try {
+        const source = await renderBitmap(1, "page");
+        if (cancelled) return;
+        canvas.width = source.width;
+        canvas.height = source.height;
+        canvas.style.display = "block";
+        canvas.style.visibility = "visible";
+        canvas.style.opacity = "1";
+        const rect = canvas.getBoundingClientRect();
+        const styles = getComputedStyle(canvas);
+        viewerLog("COVER MOUNT", { isConnected: canvas.isConnected, canvasWidth: canvas.width, canvasHeight: canvas.height });
+        viewerLog("COVER RECT", {
+          width: rect.width,
+          height: rect.height,
+          top: rect.top,
+          left: rect.left,
+          isConnected: canvas.isConnected,
+          display: styles.display,
+          visibility: styles.visibility,
+          opacity: Number(styles.opacity),
+        });
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context || rect.width <= 0 || rect.height <= 0) throw new Error("Visible cover has zero dimensions.");
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(source, 0, 0);
+        viewerLog("PREPARING OFF", { reason: "visible-cover-mounted" });
+      } catch (error) {
+        if (!cancelled) pdfLog("PAGE RENDER ERROR", { pageNumber: 1, phase: "visible-cover" }, error);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [coverReady, pageSize, pdf, renderBitmap]);
 
   useEffect(() => {
     if (!pdf || !coverReady || !pageSize || !layoutReady || !layoutRef.current || !hostRef.current || !total) return;
@@ -551,6 +599,8 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
                 return;
               }
               viewerLog("FLIPBOOK READY", { pageNumber: page, containerWidth: rect.width, containerHeight: rect.height, canvasConnected: Boolean(canvas?.isConnected) });
+              setFlipbookReady(true);
+              setViewerState("reader-ready");
               hydrateRef.current(initial);
             };
             window.requestAnimationFrame(verifyReady);
@@ -559,6 +609,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
           instance.loadFromHTML(elements);
         } catch (error) {
           if (!cancelled) {
+            setViewerState("error");
             setLoadError("The catalog reader could not be initialized.");
             setPdfStage("error");
             pdfLog("PAGE RENDER ERROR", { phase: "flipbook" }, error);
@@ -623,7 +674,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     observer?.observe(stage);
     window.addEventListener("resize", measure, { passive: true });
     return () => { observer?.disconnect(); window.removeEventListener("resize", measure); };
-  }, [pageSize, total]);
+  }, [coverReady, pageSize, total]);
 
   useEffect(() => {
     if (!drawer || !pdf) return;
@@ -689,6 +740,10 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   }, [pdf]);
 
   useEffect(() => { hydrateRef.current(currentIndex); }, [currentIndex, zoom]);
+
+  useEffect(() => {
+    viewerLog("VIEWER STATE", { state: viewerState, coverReady, layoutReady });
+  }, [coverReady, layoutReady, viewerState]);
 
   useEffect(() => {
     if (preview || !total) return;
@@ -788,7 +843,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       </header>
       <main className="rk-reader-stage" ref={stageRef} onPointerDownCapture={pointerDown} onPointerMoveCapture={pointerMove} onPointerUpCapture={pointerUp} onPointerCancelCapture={pointerUp} onDoubleClick={() => changeZoom(zoom > 1 ? 1 : 2)}>
         <div className="rk-reader-meta"><span>{catalog.collection}{catalog.season ? ` · ${catalog.season}` : ""}</span><h1>{catalog.title}</h1>{catalog.description && <p>{catalog.description}</p>}</div>
-        {!layoutReady && <div className="rk-reader-layout-loading">Preparing lookbook…</div>}
+        {coverReady && pageSize && (!flipbookReady || currentIndex === 0) && <div className="rk-cover-layer rk-cover-layer-direct" style={{ aspectRatio: `${pageSize.width} / ${pageSize.height}` }} aria-label={`${catalog.title}, cover`}><canvas ref={visibleCoverCanvasRef} /></div>}
         <button className="rk-reader-edge rk-reader-edge-left" type="button" aria-label="Previous page" disabled={!canPrevious} onClick={() => requestFlip("prev")}><ChevronLeft size={25} /></button>
         <div className="rk-reader-transform" style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}><div className="rk-book-host" ref={hostRef} /></div>
         <button className="rk-reader-edge rk-reader-edge-right" type="button" aria-label="Next page" disabled={!canNext} onClick={() => requestFlip("next")}><ChevronRight size={25} /></button>

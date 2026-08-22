@@ -238,6 +238,8 @@ a { color: inherit; text-decoration: none; }
 .rk-reader-meta p { max-width: 32ch; margin: 9px 0 0; overflow: hidden; color: rgba(218,210,198,.62); font-size: 10px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .rk-cover-layer { position: absolute; z-index: 10; top: 50%; left: 50%; height: min(86%, 78vh); width: auto; max-width: calc(100% - 36px); padding: 0; overflow: hidden; transform: translate(-50%, -50%); border: 0; border-radius: 1px; background: #eeeae1; box-shadow: 0 24px 40px rgba(0,0,0,.34), 0 0 0 1px rgba(255,255,255,.07); cursor: pointer; }
 .rk-cover-layer img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.rk-cover-layer-direct canvas { width: 100%; height: 100%; display: block; object-fit: contain; }
+.rk-cover-layer-direct { pointer-events: none; }
 .rk-cover-layer span { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 12px; color: #f8f3ea; background: rgba(31,23,20,.7); font-size: 8px; letter-spacing: .17em; text-transform: uppercase; opacity: .8; transition: opacity .2s; }
 .rk-cover-layer:hover span { opacity: 1; }
 .rk-cover-layer.is-leaving { pointer-events: none; animation: rkCoverOpen .78s cubic-bezier(.25,.72,.22,1) forwards; transform-origin: right center; }
@@ -246,7 +248,6 @@ a { color: inherit; text-decoration: none; }
 .rk-reader.is-zoomed .rk-reader-transform { cursor: grab; transition-duration: .08s; }
 .rk-reader.is-zoomed .rk-reader-transform:active { cursor: grabbing; }
 .rk-book-host { position: relative; display: block; flex: 0 0 auto; max-width: 100%; max-height: 100%; min-width: 1px; min-height: 1px; touch-action: none; contain: layout; }
-.rk-reader-layout-loading { position: absolute; z-index: 15; inset: 50% auto auto 50%; transform: translate(-50%, -50%); color: rgba(243,238,229,.72); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; white-space: nowrap; pointer-events: none; }
 .rk-book-host.is-landscape .rk-book-engine { transition: transform .78s cubic-bezier(.25,.72,.22,1); will-change: transform; }
 .rk-book-host.is-landscape.is-cover-position .rk-book-engine { transform: translate3d(-25%, 0, 0); }
 .rk-book-host.is-landscape.is-spread-position .rk-book-engine { transform: translate3d(0, 0, 0); }
