@@ -198,7 +198,7 @@ a { color: inherit; text-decoration: none; }
 .catalog-viewer.rk-reader {
   --reader-fg: #f5f0e7;
   --reader-muted: #aaa39a;
-  width: 100%; min-height: 100dvh; height: 100dvh; overflow: hidden; position: relative; isolation: isolate;
+  width: 100%; min-width: 0; min-height: 100dvh; height: 100dvh; overflow: hidden; position: relative; isolation: isolate;
   display: grid; grid-template-rows: 66px minmax(0, 1fr) 68px; color: var(--reader-fg); user-select: none;
   background: radial-gradient(ellipse at 50% 44%, #403a34 0%, #292521 36%, #171513 76%);
 }
@@ -231,7 +231,7 @@ a { color: inherit; text-decoration: none; }
 }
 .rk-reader-icon:hover:not(:disabled) { border-color: rgba(255,255,255,.42); background: rgba(255,255,255,.085); }
 .rk-reader-icon:disabled { opacity: .22; cursor: default; }
-.rk-reader-stage { min-height: 0; overflow: hidden; position: relative; display: grid; place-items: center; padding: clamp(10px, 1.8vw, 25px) clamp(54px, 5vw, 86px); touch-action: none; overscroll-behavior: contain; }
+.rk-reader-stage { width: 100%; height: calc(100dvh - 134px); min-width: 0; min-height: 1px; overflow: hidden; position: relative; display: grid; place-items: center; padding: clamp(10px, 1.8vw, 25px) clamp(54px, 5vw, 86px); touch-action: none; overscroll-behavior: contain; }
 .rk-reader-meta { position: absolute; z-index: 11; top: clamp(17px, 3vh, 32px); left: 50%; max-width: min(62vw, 520px); transform: translateX(-50%); pointer-events: none; color: rgba(245,240,231,.9); text-align: center; }
 .rk-reader-meta > span { display: block; color: #d1b182; font-size: 8px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; }
 .rk-reader-meta h1 { margin: 7px 0 0; font: 400 clamp(24px, 3vw, 42px)/.95 "Bodoni 72", Didot, serif; letter-spacing: .015em; }
@@ -242,10 +242,11 @@ a { color: inherit; text-decoration: none; }
 .rk-cover-layer:hover span { opacity: 1; }
 .rk-cover-layer.is-leaving { pointer-events: none; animation: rkCoverOpen .78s cubic-bezier(.25,.72,.22,1) forwards; transform-origin: right center; }
 @keyframes rkCoverOpen { 0% { opacity: 1; transform: translate(-50%, -50%) rotateY(0deg); } 100% { opacity: 0; transform: translate(15%, -50%) rotateY(-175deg); } }
-.rk-reader-transform { width: 100%; height: 100%; transform-origin: center; display: grid; place-items: center; transition: transform .18s ease-out; will-change: transform; }
+.rk-reader-transform { width: 100%; height: 100%; min-width: 0; min-height: 0; transform-origin: center; display: grid; place-items: center; transition: transform .18s ease-out; will-change: transform; }
 .rk-reader.is-zoomed .rk-reader-transform { cursor: grab; transition-duration: .08s; }
 .rk-reader.is-zoomed .rk-reader-transform:active { cursor: grabbing; }
 .rk-book-host { position: relative; display: block; flex: 0 0 auto; max-width: 100%; max-height: 100%; min-width: 1px; min-height: 1px; touch-action: none; contain: layout; }
+.rk-reader-layout-loading { position: absolute; z-index: 15; inset: 50% auto auto 50%; transform: translate(-50%, -50%); color: rgba(243,238,229,.72); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; white-space: nowrap; pointer-events: none; }
 .rk-book-host.is-landscape .rk-book-engine { transition: transform .78s cubic-bezier(.25,.72,.22,1); will-change: transform; }
 .rk-book-host.is-landscape.is-cover-position .rk-book-engine { transform: translate3d(-25%, 0, 0); }
 .rk-book-host.is-landscape.is-spread-position .rk-book-engine { transform: translate3d(0, 0, 0); }

@@ -16,6 +16,8 @@ type PdfStage = "idle" | "loading-document" | "document-ready" | "loading-page" 
 
 type BitmapRecord = { canvas: HTMLCanvasElement; lastUsed: number; key: string };
 type PdfPageSize = { width: number; height: number };
+type ViewerLayout = { stageWidth: number; stageHeight: number; bookWidth: number; bookHeight: number; pageWidth: number; pageHeight: number };
+type PdfLoadEntry = { key: string; task: PDFDocumentLoadingTask | null; promise: Promise<PDFDocumentProxy>; cancelled: boolean };
 
 function pdfLog(event: string, details?: Record<string, unknown>, error?: unknown) {
   const payload = { event, ...(details || {}) };
@@ -25,6 +27,9 @@ function pdfLog(event: string, details?: Record<string, unknown>, error?: unknow
   } else if (process.env.NODE_ENV !== "production") {
     console.info(prefix, payload);
   }
+}
+function viewerLog(event: string, details?: Record<string, unknown>) {
+  if (process.env.NODE_ENV !== "production") console.info("[RK VIEWER]", { event, ...(details || {}) });
 }
 function disposePdfDocument(document: PDFDocumentProxy | null) {
   if (document) void document.cleanup().catch((error) => pdfLog("PDF LOAD ERROR", { phase: "cleanup" }, error));
@@ -66,6 +71,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   const [pageSize, setPageSize] = useState<PdfPageSize | null>(null);
   const [coverReady, setCoverReady] = useState(false);
   const [pdfStage, setPdfStage] = useState<PdfStage>("idle");
+  const [layoutReady, setLayoutReady] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [loadDiagnostic, setLoadDiagnostic] = useState("");
   const [loading, setLoading] = useState(true);
@@ -91,9 +97,12 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   const bitmapCache = useRef(new Map<string, BitmapRecord>());
   const renderPromises = useRef(new Map<string, Promise<HTMLCanvasElement>>());
   const pagePromises = useRef(new Map<number, Promise<PDFPageProxy>>());
+  const pageDimensions = useRef(new Map<number, PdfPageSize>());
   const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null);
-  const loadingTaskRef = useRef<PDFDocumentLoadingTask | null>(null);
+  const pdfLoadRef = useRef<PdfLoadEntry | null>(null);
+  const loadLifecycleRef = useRef(0);
   const renderGeneration = useRef(0);
+  const layoutRef = useRef<ViewerLayout | null>(null);
   const hydrateRef = useRef<(center: number) => void>(() => undefined);
   const navigationPending = useRef(false);
   const zoomRef = useRef(zoom);
@@ -144,6 +153,16 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     return promise;
   }, [pdf]);
 
+  const getPageDimensions = useCallback(async (pageNumber: number) => {
+    const cached = pageDimensions.current.get(pageNumber);
+    if (cached) return cached;
+    const page = await getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1 });
+    const dimensions = { width: viewport.width, height: viewport.height };
+    pageDimensions.current.set(pageNumber, dimensions);
+    return dimensions;
+  }, [getPage]);
+
   const evictCache = useCallback(() => {
     while (bitmapCache.current.size > MAX_CACHE) {
       const oldest = [...bitmapCache.current.values()].sort((a, b) => a.lastUsed - b.lastUsed)[0];
@@ -168,6 +187,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         // pages get a higher-quality representation without rendering 8K surfaces.
         const scale = quality === "thumb" ? 0.32 : Math.min(1.65, 0.65 + 0.3 * zoomRef.current);
         const viewport = page.getViewport({ scale });
+        pageDimensions.current.set(pageNumber, { width: viewport.width / scale, height: viewport.height / scale });
         const outputScale = quality === "thumb" ? 1 : Math.min(1.25, window.devicePixelRatio || 1);
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.floor(viewport.width * outputScale));
@@ -207,7 +227,10 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       canvas.style.display = "block";
       canvas.style.visibility = "visible";
       canvas.style.opacity = "1";
-      const media = canvas.closest(".rk-page-media");
+      const media = canvas.closest<HTMLDivElement>(".rk-page-media");
+      const dimensions = pageDimensions.current.get(pageNumber);
+      if (media && dimensions) media.style.setProperty("--page-ratio", `${dimensions.width} / ${dimensions.height}`);
+      canvas.style.objectFit = "contain";
       media?.classList.add("is-loaded");
       const rect = canvas.getBoundingClientRect();
       const mediaRect = media?.getBoundingClientRect();
@@ -240,14 +263,17 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
 
   const hydrateWindow = useCallback((center: number) => {
     if (!pdf || !total) return;
-    const start = Math.max(1, center + 1 - 4);
-    const end = Math.min(total, center + 1 + 4);
+    const start = Math.max(1, center + 1 - (center === 0 ? 0 : 2));
+    const end = Math.min(total, center + 1 + (center === 0 ? 2 : 3));
     for (let page = start; page <= end; page += 1) {
       const canvas = canvasRefs.current[page - 1];
       if (canvas) {
-        const media = canvas.closest(".rk-page-media");
+        const media = canvas.closest<HTMLDivElement>(".rk-page-media");
+        const dimensions = pageDimensions.current.get(page);
+        if (media && dimensions) media.style.setProperty("--page-ratio", `${dimensions.width} / ${dimensions.height}`);
+        canvas.style.objectFit = "contain";
         const rect = media?.getBoundingClientRect();
-        pdfLog("PAGE CONTAINER", { pageNumber: page, width: rect?.width || 0, height: rect?.height || 0, isConnected: canvas.isConnected });
+        viewerLog("PAGE CONTAINER", { pageNumber: page, width: rect?.width || 0, height: rect?.height || 0, isConnected: canvas.isConnected });
         void paintCanvas(page, canvas, "page");
       }
       // Keep the adjacent pages warm without blocking the visible spread.
@@ -258,9 +284,12 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   useEffect(() => { hydrateRef.current = hydrateWindow; }, [hydrateWindow]);
 
   useEffect(() => {
+    const loadKey = `${catalog.id}:${retryKey}`;
+    const lifecycle = loadLifecycleRef.current + 1;
+    loadLifecycleRef.current = lifecycle;
     let cancelled = false;
     const promises = pagePromises.current;
-    let task: PDFDocumentLoadingTask | null = null;
+    const dimensions = pageDimensions.current;
     // The loading state belongs to the asynchronous PDF task, not to server rendering.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
@@ -271,31 +300,43 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     setPageCount(0);
     setPageSize(null);
     setCoverReady(false);
-    if (pdfDocumentRef.current) {
+    setLayoutReady(false);
+    const previous = pdfLoadRef.current;
+    if (previous && previous.key !== loadKey) {
+      previous.cancelled = true;
+      disposeLoadingTask(previous.task);
+      pdfLoadRef.current = null;
       disposePdfDocument(pdfDocumentRef.current);
       pdfDocumentRef.current = null;
+      clearCache();
+      pagePromises.current.clear();
+      pageDimensions.current.clear();
     }
-    if (loadingTaskRef.current) {
-      disposeLoadingTask(loadingTaskRef.current);
-      loadingTaskRef.current = null;
-    }
-    clearCache();
-    promises.clear();
+    let entry = pdfLoadRef.current;
     void (async () => {
-      pdfLog("PDF LOAD START", { catalogId: catalog.id, url: `/api/catalogs/${catalog.id}/pdf` });
-      pdfLog("START DOCUMENT LOAD", { catalogId: catalog.id, url: `/api/catalogs/${catalog.id}/pdf` });
       try {
-        const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist");
-        const workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-        GlobalWorkerOptions.workerSrc = workerSrc;
-        pdfLog("PDF WORKER READY", { workerSrc });
-        task = getDocument({ url: `/api/catalogs/${catalog.id}/pdf`, rangeChunkSize: 65536, disableAutoFetch: false, disableStream: false, withCredentials: false });
-        loadingTaskRef.current = task;
-        const document = await task.promise;
-        if (cancelled) {
-          await task.destroy();
-          return;
+        if (!entry || entry.key !== loadKey) {
+          pdfLog("PDF LOAD START", { catalogId: catalog.id, url: `/api/catalogs/${catalog.id}/pdf` });
+          pdfLog("START DOCUMENT LOAD", { catalogId: catalog.id, url: `/api/catalogs/${catalog.id}/pdf` });
+          const nextEntry = { key: loadKey, task: null, cancelled: false } as PdfLoadEntry;
+          nextEntry.promise = (async () => {
+            const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist");
+            const workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+            GlobalWorkerOptions.workerSrc = workerSrc;
+            pdfLog("PDF WORKER READY", { workerSrc });
+            const task = getDocument({ url: `/api/catalogs/${catalog.id}/pdf`, rangeChunkSize: 65536, disableAutoFetch: false, disableStream: false, withCredentials: false });
+            nextEntry.task = task;
+            if (nextEntry.cancelled) {
+              await task.destroy();
+              throw new Error("PDF load was cancelled.");
+            }
+            return task.promise;
+          })();
+          entry = nextEntry;
+          pdfLoadRef.current = nextEntry;
         }
+        const document = await entry.promise;
+        if (cancelled || entry.cancelled || loadLifecycleRef.current !== lifecycle) return;
         pdfDocumentRef.current = document;
         setPdf(document);
         setPageCount(document.numPages);
@@ -305,7 +346,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         pdfLog("PAGE COUNT", { catalogId: catalog.id, numPages: document.numPages });
         pdfLog("PDF LOAD SUCCESS", { catalogId: catalog.id, numPages: document.numPages });
       } catch (error) {
-        if (cancelled) return;
+        if (cancelled || loadLifecycleRef.current !== lifecycle) return;
         setLoading(false);
         setPdfStage("error");
         setLoadError(userFacingPdfError(error));
@@ -315,14 +356,20 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     })();
     return () => {
       cancelled = true;
-      clearCache();
-      promises.clear();
-      if (pdfDocumentRef.current) {
+      window.setTimeout(() => {
+        if (loadLifecycleRef.current !== lifecycle) return;
+        const active = pdfLoadRef.current;
+        if (active?.key === loadKey) {
+          active.cancelled = true;
+          disposeLoadingTask(active.task);
+          pdfLoadRef.current = null;
+        }
         disposePdfDocument(pdfDocumentRef.current);
         pdfDocumentRef.current = null;
-      }
-      disposeLoadingTask(task);
-      if (loadingTaskRef.current === task) loadingTaskRef.current = null;
+        clearCache();
+        promises.clear();
+        dimensions.clear();
+      }, 0);
     };
   }, [catalog.id, clearCache, retryKey]);
 
@@ -335,12 +382,12 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     void (async () => {
       try {
         pdfLog("START PAGE 1", { pageNumber: 1 });
-        const page = await getPage(1);
+        await getPage(1);
         pdfLog("PAGE 1 LOADED", { pageNumber: 1 });
-        const viewport = page.getViewport({ scale: 1 });
-        pdfLog("VIEWPORT", { pageNumber: 1, width: viewport.width, height: viewport.height, scale: 1 });
+        const dimensions = await getPageDimensions(1);
+        pdfLog("VIEWPORT", { pageNumber: 1, width: dimensions.width, height: dimensions.height, scale: 1 });
         if (cancelled) return;
-        setPageSize({ width: viewport.width, height: viewport.height });
+        setPageSize(dimensions);
       } catch (error) {
         if (cancelled) return;
         setLoadError(PAGE_ERROR);
@@ -349,7 +396,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       }
     })();
     return () => { cancelled = true; };
-  }, [getPage, pdf]);
+  }, [getPage, getPageDimensions, pdf]);
 
   useEffect(() => {
     if (!pdf || !pageSize || !coverCanvasRef.current) return;
@@ -398,12 +445,23 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   }, [pageSize, pdf, renderBitmap]);
 
   useEffect(() => {
-    if (!pdf || !coverReady || !pageSize || !hostRef.current || !total) return;
+    if (!pdf || !coverReady || !pageSize || !layoutReady || !layoutRef.current || !hostRef.current || !total) return;
     let cancelled = false;
     let instance: PageFlipInstance | null = null;
     const host = hostRef.current;
+    const layout = layoutRef.current;
+    host.style.width = `${layout.bookWidth}px`;
+    host.style.height = `${layout.bookHeight}px`;
+    host.style.aspectRatio = String(layout.bookWidth / layout.bookHeight);
+    const hostRect = host.getBoundingClientRect();
+    if (hostRect.width <= 0 || hostRect.height <= 0) {
+      viewerLog("LAYOUT WAITING", { bookWidth: hostRect.width, bookHeight: hostRect.height });
+      return;
+    }
     const mount = document.createElement("div");
     mount.className = "rk-book-engine";
+    mount.style.width = `${layout.bookWidth}px`;
+    mount.style.height = `${layout.bookHeight}px`;
     host.replaceChildren(mount);
     canvasRefs.current = [];
     mediaRefs.current = [];
@@ -411,6 +469,8 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       const pageNumber = index + 1;
       const element = document.createElement("section");
       element.className = "rk-flip-page";
+      element.style.width = `${layout.pageWidth}px`;
+      element.style.height = `${layout.pageHeight}px`;
       element.dataset.page = String(pageNumber);
       if (index === 0 || index === total - 1) element.dataset.density = "hard";
       const media = document.createElement("div");
@@ -434,10 +494,10 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         try {
           const { PageFlip } = await import("page-flip");
           if (cancelled) return;
-          const ratio = pageSize.height / pageSize.width;
+          const ratio = layout.pageHeight / layout.pageWidth;
           instance = new PageFlip(mount, {
-            width: 1000,
-            height: Math.round(1000 * ratio),
+            width: Math.max(1, Math.round(layout.pageWidth)),
+            height: Math.max(1, Math.round(layout.pageHeight)),
             size: "stretch",
             minWidth: 280,
             maxWidth: 1600,
@@ -477,7 +537,12 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
               if (cancelled) return;
               const canvas = canvasRefs.current[initial];
               const rect = canvas?.closest(".rk-page-media")?.getBoundingClientRect();
-              pdfLog("FLIPBOOK READY", { pageNumber: page, containerWidth: rect?.width || 0, containerHeight: rect?.height || 0, canvasConnected: Boolean(canvas?.isConnected) });
+              if (!rect || rect.width <= 0 || rect.height <= 0) {
+                viewerLog("LAYOUT WAITING", { pageNumber: page, containerWidth: rect?.width || 0, containerHeight: rect?.height || 0 });
+                instance?.update();
+                return;
+              }
+              viewerLog("FLIPBOOK READY", { pageNumber: page, containerWidth: rect.width, containerHeight: rect.height, canvasConnected: Boolean(canvas?.isConnected) });
               hydrateRef.current(initial);
             });
           });
@@ -499,24 +564,50 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       instance?.destroy();
       host.replaceChildren();
     };
-  }, [catalog.title, coverReady, pageSize, pdf, total]);
+  }, [catalog.title, coverReady, layoutReady, pageSize, pdf, total]);
 
   useEffect(() => {
     if (!total || !pageSize || !stageRef.current || !hostRef.current) return;
     const stage = stageRef.current;
     const host = hostRef.current;
     const measure = () => {
-      const availableWidth = Math.max(1, stage.clientWidth - 110);
-      const availableHeight = Math.max(1, stage.clientHeight - 34);
+      const stageRect = stage.getBoundingClientRect();
+      const stageWidth = Math.round(stageRect.width);
+      const stageHeight = Math.round(stageRect.height);
+      viewerLog("READER STAGE", { width: stageWidth, height: stageHeight, top: stageRect.top, left: stageRect.left });
+      if (stageWidth <= 0 || stageHeight <= 0) {
+        layoutRef.current = null;
+        setLayoutReady(false);
+        return;
+      }
+      const availableWidth = Math.max(0, stageWidth - 110);
+      const availableHeight = Math.max(0, stageHeight - 34);
+      if (availableWidth <= 0 || availableHeight <= 0) {
+        layoutRef.current = null;
+        setLayoutReady(false);
+        return;
+      }
       const ratio = pageSize.width / pageSize.height;
       const portrait = window.innerWidth <= 640 || availableWidth < 640;
       const bookRatio = portrait ? ratio : ratio * 2;
-      const width = Math.max(1, Math.min(availableWidth, availableHeight * bookRatio));
-      host.style.width = `${width}px`;
-      host.style.height = `${width / bookRatio}px`;
+      const bookWidth = Math.max(1, Math.min(availableWidth, availableHeight * bookRatio));
+      const bookHeight = Math.max(1, bookWidth / bookRatio);
+      const nextLayout: ViewerLayout = {
+        stageWidth,
+        stageHeight,
+        bookWidth,
+        bookHeight,
+        pageWidth: portrait ? bookWidth : bookWidth / 2,
+        pageHeight: bookHeight,
+      };
+      layoutRef.current = nextLayout;
+      viewerLog("BOOK", { width: bookWidth, height: bookHeight, pageWidth: nextLayout.pageWidth, pageHeight: nextLayout.pageHeight, portrait });
+      host.style.width = `${bookWidth}px`;
+      host.style.height = `${bookHeight}px`;
       host.style.aspectRatio = String(bookRatio);
       flipRef.current?.update();
       hydrateRef.current(flipRef.current?.getCurrentPageIndex() || 0);
+      setLayoutReady(true);
     };
     measure();
     const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
@@ -688,6 +779,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       </header>
       <main className="rk-reader-stage" ref={stageRef} onPointerDownCapture={pointerDown} onPointerMoveCapture={pointerMove} onPointerUpCapture={pointerUp} onPointerCancelCapture={pointerUp} onDoubleClick={() => changeZoom(zoom > 1 ? 1 : 2)}>
         <div className="rk-reader-meta"><span>{catalog.collection}{catalog.season ? ` · ${catalog.season}` : ""}</span><h1>{catalog.title}</h1>{catalog.description && <p>{catalog.description}</p>}</div>
+        {!layoutReady && <div className="rk-reader-layout-loading">Preparing lookbook…</div>}
         <button className="rk-reader-edge rk-reader-edge-left" type="button" aria-label="Previous page" disabled={!canPrevious} onClick={() => requestFlip("prev")}><ChevronLeft size={25} /></button>
         <div className="rk-reader-transform" style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}><div className="rk-book-host" ref={hostRef} /></div>
         <button className="rk-reader-edge rk-reader-edge-right" type="button" aria-label="Next page" disabled={!canNext} onClick={() => requestFlip("next")}><ChevronRight size={25} /></button>
