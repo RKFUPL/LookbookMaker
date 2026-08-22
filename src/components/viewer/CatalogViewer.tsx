@@ -418,6 +418,9 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         canvas.style.visibility = "visible";
         canvas.style.opacity = "1";
         const rect = canvas.getBoundingClientRect();
+        if (canvas.width <= 0 || canvas.height <= 0 || rect.width <= 0 || rect.height <= 0) {
+          throw new Error("Page 1 rendered with zero dimensions.");
+        }
         pdfLog("CANVAS IN DOM", {
           pageNumber: 1,
           quality: "cover",
@@ -434,6 +437,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         });
         setCoverReady(true);
         setPdfStage("rendered");
+        viewerLog("COVER READY", { width: rect.width, height: rect.height, canvasWidth: canvas.width, canvasHeight: canvas.height });
       } catch (error) {
         if (cancelled) return;
         setLoadError(PAGE_ERROR);
@@ -533,18 +537,23 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
             const page = Math.min(total, initial + 1);
             setPageInput(String(page));
             updatePageUrl(page, "replace");
-            window.requestAnimationFrame(() => {
+            let readyAttempts = 0;
+            const verifyReady = () => {
               if (cancelled) return;
               const canvas = canvasRefs.current[initial];
               const rect = canvas?.closest(".rk-page-media")?.getBoundingClientRect();
               if (!rect || rect.width <= 0 || rect.height <= 0) {
-                viewerLog("LAYOUT WAITING", { pageNumber: page, containerWidth: rect?.width || 0, containerHeight: rect?.height || 0 });
+                if (readyAttempts === 0) viewerLog("LAYOUT WAITING", { pageNumber: page, containerWidth: rect?.width || 0, containerHeight: rect?.height || 0 });
+                readyAttempts += 1;
                 instance?.update();
+                if (readyAttempts < 12) window.requestAnimationFrame(verifyReady);
+                else window.setTimeout(verifyReady, 100);
                 return;
               }
               viewerLog("FLIPBOOK READY", { pageNumber: page, containerWidth: rect.width, containerHeight: rect.height, canvasConnected: Boolean(canvas?.isConnected) });
               hydrateRef.current(initial);
-            });
+            };
+            window.requestAnimationFrame(verifyReady);
           });
           flipRef.current = instance;
           instance.loadFromHTML(elements);
