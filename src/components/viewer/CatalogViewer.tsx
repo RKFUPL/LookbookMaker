@@ -10,16 +10,20 @@ import { Brand } from "@/components/Brand";
 const MAX_ZOOM = 3;
 const MAX_CACHE = 12;
 const PDF_ERROR = "Unable to load this lookbook.";
+const PAGE_ERROR = "Unable to render page 1.";
+const WORKER_ERROR = "PDF viewer failed to initialize.";
+type PdfStage = "idle" | "loading-document" | "document-ready" | "loading-page" | "rendering-page" | "rendered" | "error";
 
 type BitmapRecord = { canvas: HTMLCanvasElement; lastUsed: number; key: string };
 type PdfPageSize = { width: number; height: number };
 
 function pdfLog(event: string, details?: Record<string, unknown>, error?: unknown) {
   const payload = { event, ...(details || {}) };
+  const prefix = event.endsWith("ERROR") ? "[RK PDF ERROR]" : "[RK PDF]";
   if (event.endsWith("ERROR")) {
-    console.error("[RK PDF]", payload, error);
+    console.error(prefix, payload, error);
   } else if (process.env.NODE_ENV !== "production") {
-    console.info("[RK PDF]", payload);
+    console.info(prefix, payload);
   }
 }
 function disposePdfDocument(document: PDFDocumentProxy | null) {
@@ -27,6 +31,10 @@ function disposePdfDocument(document: PDFDocumentProxy | null) {
 }
 function disposeLoadingTask(task: PDFDocumentLoadingTask | null) {
   if (task) void task.destroy().catch((error) => pdfLog("PDF LOAD ERROR", { phase: "destroy" }, error));
+}
+function userFacingPdfError(error: unknown, fallback = PDF_ERROR) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /worker/i.test(message) ? WORKER_ERROR : fallback;
 }
 
 function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
@@ -57,6 +65,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   const [pageCount, setPageCount] = useState(0);
   const [pageSize, setPageSize] = useState<PdfPageSize | null>(null);
   const [coverReady, setCoverReady] = useState(false);
+  const [pdfStage, setPdfStage] = useState<PdfStage>("idle");
   const [loadError, setLoadError] = useState("");
   const [loadDiagnostic, setLoadDiagnostic] = useState("");
   const [loading, setLoading] = useState(true);
@@ -165,11 +174,13 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         canvas.height = Math.max(1, Math.floor(viewport.height * outputScale));
         const context = canvas.getContext("2d", { alpha: false });
         if (!context) throw new Error("Canvas rendering is unavailable.");
+        pdfLog("START RENDER PAGE", { pageNumber, quality, scale, outputScale });
         pdfLog("PAGE RENDER START", { pageNumber, quality, scale, outputScale });
         await page.render({ canvas, canvasContext: context, viewport, transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined }).promise;
         if (generation !== renderGeneration.current) throw new Error("PDF render was cancelled.");
         bitmapCache.current.set(key, { canvas, lastUsed: Date.now(), key });
         evictCache();
+        pdfLog("PAGE RENDERED", { pageNumber, quality, width: canvas.width, height: canvas.height });
         pdfLog("PAGE RENDER SUCCESS", { pageNumber, quality, width: canvas.width, height: canvas.height });
         return canvas;
       } catch (error) {
@@ -188,13 +199,42 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       const source = await renderBitmap(pageNumber, quality);
       canvas.width = source.width;
       canvas.height = source.height;
+      pdfLog("CANVAS SIZE", { pageNumber, quality, width: canvas.width, height: canvas.height, clientWidth: canvas.clientWidth, clientHeight: canvas.clientHeight });
       const context = canvas.getContext("2d", { alpha: false });
       if (!context) throw new Error("Canvas rendering is unavailable.");
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.drawImage(source, 0, 0);
-      canvas.closest(".rk-page-media")?.classList.add("is-loaded");
+      canvas.style.display = "block";
+      canvas.style.visibility = "visible";
+      canvas.style.opacity = "1";
+      const media = canvas.closest(".rk-page-media");
+      media?.classList.add("is-loaded");
+      const rect = canvas.getBoundingClientRect();
+      const mediaRect = media?.getBoundingClientRect();
+      pdfLog("CANVAS IN DOM", {
+        pageNumber,
+        quality,
+        isConnected: canvas.isConnected,
+        display: getComputedStyle(canvas).display,
+        visibility: getComputedStyle(canvas).visibility,
+        opacity: getComputedStyle(canvas).opacity,
+        canvasWidth: canvas.width,
+        canvasHeight: canvas.height,
+        clientWidth: canvas.clientWidth,
+        clientHeight: canvas.clientHeight,
+        rectWidth: rect.width,
+        rectHeight: rect.height,
+        containerWidth: mediaRect?.width || 0,
+        containerHeight: mediaRect?.height || 0,
+      });
+      return true;
     } catch (error) {
+      if (pageNumber === 1 && quality === "page") {
+        setPdfStage("error");
+        setLoadError(PAGE_ERROR);
+      }
       pdfLog("PAGE RENDER ERROR", { pageNumber, quality, phase: "paint" }, error);
+      return false;
     }
   }, [renderBitmap]);
 
@@ -204,7 +244,12 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     const end = Math.min(total, center + 1 + 4);
     for (let page = start; page <= end; page += 1) {
       const canvas = canvasRefs.current[page - 1];
-      if (canvas) void paintCanvas(page, canvas, "page");
+      if (canvas) {
+        const media = canvas.closest(".rk-page-media");
+        const rect = media?.getBoundingClientRect();
+        pdfLog("PAGE CONTAINER", { pageNumber: page, width: rect?.width || 0, height: rect?.height || 0, isConnected: canvas.isConnected });
+        void paintCanvas(page, canvas, "page");
+      }
       // Keep the adjacent pages warm without blocking the visible spread.
       if (Math.abs(page - (center + 1)) > 1) void renderBitmap(page, "page");
     }
@@ -219,6 +264,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     // The loading state belongs to the asynchronous PDF task, not to server rendering.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
+    setPdfStage("loading-document");
     setLoadError("");
     setLoadDiagnostic("");
     setPdf(null);
@@ -237,6 +283,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     promises.clear();
     void (async () => {
       pdfLog("PDF LOAD START", { catalogId: catalog.id, url: `/api/catalogs/${catalog.id}/pdf` });
+      pdfLog("START DOCUMENT LOAD", { catalogId: catalog.id, url: `/api/catalogs/${catalog.id}/pdf` });
       try {
         const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist");
         const workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
@@ -253,11 +300,15 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         setPdf(document);
         setPageCount(document.numPages);
         setLoading(false);
+        setPdfStage("document-ready");
+        pdfLog("DOCUMENT LOADED", { catalogId: catalog.id });
+        pdfLog("PAGE COUNT", { catalogId: catalog.id, numPages: document.numPages });
         pdfLog("PDF LOAD SUCCESS", { catalogId: catalog.id, numPages: document.numPages });
       } catch (error) {
         if (cancelled) return;
         setLoading(false);
-        setLoadError(PDF_ERROR);
+        setPdfStage("error");
+        setLoadError(userFacingPdfError(error));
         if (process.env.NODE_ENV !== "production") setLoadDiagnostic(error instanceof Error ? error.message : String(error));
         pdfLog("PDF LOAD ERROR", { catalogId: catalog.id }, error);
       }
@@ -278,15 +329,21 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   useEffect(() => {
     if (!pdf) return;
     let cancelled = false;
+    // The page state mirrors the asynchronous PDF.js request below.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPdfStage("loading-page");
     void (async () => {
       try {
+        pdfLog("START PAGE 1", { pageNumber: 1 });
         const page = await getPage(1);
+        pdfLog("PAGE 1 LOADED", { pageNumber: 1 });
         const viewport = page.getViewport({ scale: 1 });
+        pdfLog("VIEWPORT", { pageNumber: 1, width: viewport.width, height: viewport.height, scale: 1 });
         if (cancelled) return;
         setPageSize({ width: viewport.width, height: viewport.height });
       } catch (error) {
         if (cancelled) return;
-        setLoadError(PDF_ERROR);
+        setLoadError(PAGE_ERROR);
         if (process.env.NODE_ENV !== "production") setLoadDiagnostic(error instanceof Error ? error.message : String(error));
         pdfLog("PAGE RENDER ERROR", { pageNumber: 1, phase: "cover" }, error);
       }
@@ -300,18 +357,39 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     const canvas = coverCanvasRef.current;
     void (async () => {
       try {
+        setPdfStage("rendering-page");
         const source = await renderBitmap(1, "page");
         if (cancelled) return;
         canvas.width = source.width;
         canvas.height = source.height;
+        pdfLog("CANVAS SIZE", { pageNumber: 1, quality: "cover", width: canvas.width, height: canvas.height, clientWidth: canvas.clientWidth, clientHeight: canvas.clientHeight });
         const context = canvas.getContext("2d", { alpha: false });
         if (!context) throw new Error("Canvas rendering is unavailable.");
         context.clearRect(0, 0, canvas.width, canvas.height);
         context.drawImage(source, 0, 0);
+        canvas.style.display = "block";
+        canvas.style.visibility = "visible";
+        canvas.style.opacity = "1";
+        const rect = canvas.getBoundingClientRect();
+        pdfLog("CANVAS IN DOM", {
+          pageNumber: 1,
+          quality: "cover",
+          isConnected: canvas.isConnected,
+          display: getComputedStyle(canvas).display,
+          visibility: getComputedStyle(canvas).visibility,
+          opacity: getComputedStyle(canvas).opacity,
+          canvasWidth: canvas.width,
+          canvasHeight: canvas.height,
+          clientWidth: canvas.clientWidth,
+          clientHeight: canvas.clientHeight,
+          rectWidth: rect.width,
+          rectHeight: rect.height,
+        });
         setCoverReady(true);
+        setPdfStage("rendered");
       } catch (error) {
         if (cancelled) return;
-        setLoadError(PDF_ERROR);
+        setLoadError(PAGE_ERROR);
         if (process.env.NODE_ENV !== "production") setLoadDiagnostic(error instanceof Error ? error.message : String(error));
         pdfLog("PAGE RENDER ERROR", { pageNumber: 1, phase: "cover" }, error);
       }
@@ -395,11 +473,23 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
             const page = Math.min(total, initial + 1);
             setPageInput(String(page));
             updatePageUrl(page, "replace");
-            hydrateRef.current(initial);
+            window.requestAnimationFrame(() => {
+              if (cancelled) return;
+              const canvas = canvasRefs.current[initial];
+              const rect = canvas?.closest(".rk-page-media")?.getBoundingClientRect();
+              pdfLog("FLIPBOOK READY", { pageNumber: page, containerWidth: rect?.width || 0, containerHeight: rect?.height || 0, canvasConnected: Boolean(canvas?.isConnected) });
+              hydrateRef.current(initial);
+            });
           });
           flipRef.current = instance;
           instance.loadFromHTML(elements);
-        } catch { if (!cancelled) setLoadError("The catalog reader could not be initialized."); }
+        } catch (error) {
+          if (!cancelled) {
+            setLoadError("The catalog reader could not be initialized.");
+            setPdfStage("error");
+            pdfLog("PAGE RENDER ERROR", { phase: "flipbook" }, error);
+          }
+        }
       })();
     }, 0);
     return () => {
@@ -426,6 +516,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       host.style.height = `${width / bookRatio}px`;
       host.style.aspectRatio = String(bookRatio);
       flipRef.current?.update();
+      hydrateRef.current(flipRef.current?.getCurrentPageIndex() || 0);
     };
     measure();
     const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
@@ -576,7 +667,8 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     return <div className="rk-reader-loading"><Brand /><div className="rk-reader-load-copy"><p>{loadError}</p>{loadDiagnostic && process.env.NODE_ENV !== "production" && <small>{loadDiagnostic}</small>}<button type="button" onClick={() => setRetryKey((value) => value + 1)}><RefreshCw size={15} /> Try again</button></div></div>;
   }
   if (loading || !pdf || !total || !coverReady) {
-    return <div className="rk-reader-loading"><Brand />{pdf && <canvas ref={coverCanvasRef} className="rk-reader-cover-preview" aria-label={`${catalog.title}, page 1`} />}<div className="rk-reader-load-copy"><i /><p>{loading ? "Loading PDF metadata…" : "Preparing reader…"}</p></div></div>;
+    const stageLabel = pdfStage === "loading-document" ? "Loading PDF metadata…" : pdfStage === "loading-page" ? "Loading page 1…" : pdfStage === "rendering-page" ? "Rendering page 1…" : "Preparing reader…";
+    return <div className="rk-reader-loading"><Brand />{pdf && <canvas ref={coverCanvasRef} className="rk-reader-cover-preview" aria-label={`${catalog.title}, page 1`} />}<div className="rk-reader-load-copy"><i /><p>{stageLabel}</p></div></div>;
   }
 
   const canPrevious = currentIndex > 0 && flipState === "read";
