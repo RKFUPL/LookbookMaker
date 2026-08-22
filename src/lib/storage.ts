@@ -1,6 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { constants, createReadStream, createWriteStream, type ReadStream } from "node:fs";
-import { access, copyFile, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { catalogStorageRoot, getConfig, requiredProductionStorageRoot } from "@/lib/config";
@@ -109,14 +109,6 @@ export async function assertPersistentCatalogStorage() {
 
   try {
     if (process.env.NODE_ENV !== "production") await mkdir(root, { recursive: true });
-    if (process.env.NODE_ENV === "production" && process.platform === "linux") {
-      const mounts = await readFile("/proc/self/mountinfo", "utf8");
-      const mountedAtRequiredPath = mounts.split("\n").some((line) => {
-        const mountPoint = line.split(" ")[4]?.replace(/\\040/g, " ").replace(/\\011/g, "\t");
-        return mountPoint === requiredRoot;
-      });
-      if (!mountedAtRequiredPath) throw new Error("The required path is not a mounted filesystem.");
-    }
     const details = await stat(root);
     if (!details.isDirectory()) throw new Error("Storage path is not a directory.");
     await access(root, constants.R_OK | constants.W_OK);
