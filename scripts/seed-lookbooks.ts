@@ -14,6 +14,7 @@ async function main() {
   for (const definition of lookbooks as Lookbook[]) {
     const source = definition.pdfUrl || "";
     const update = {
+      slug: definition.slug,
       title: definition.title,
       collectionName: definition.collection,
       season: definition.season,
@@ -22,8 +23,9 @@ async function main() {
       processingMessage: "External PDF mode — pages load in the browser.",
       updatedBy: staff._id,
     };
+    const existing = await Catalog.findOne({ $or: [{ slug: definition.slug }, ...(definition.legacySlug ? [{ slug: definition.legacySlug }] : [])] });
     await Catalog.findOneAndUpdate(
-      { slug: definition.slug },
+      existing ? { _id: existing._id } : { slug: definition.slug },
       {
         $set: update,
         $setOnInsert: { slug: definition.slug, createdBy: staff._id, allowDownload: true, showBackButton: false },

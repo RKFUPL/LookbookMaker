@@ -13,7 +13,7 @@ const catalogSchema = new Schema(
       default: "draft",
       index: true,
     },
-    sourcePdfUrl: { type: String, required: true },
+    sourcePdfUrl: { type: String, default: "" },
     sourceType: { type: String, enum: ["external_url"], default: "external_url" },
     sourceSize: Number,
     originalFilename: String,
