@@ -10,11 +10,11 @@ type Counts = Record<string, number>;
 const tabs = [
   { value: "", label: "All catalogs" },
   { value: "draft", label: "Drafts" },
+  { value: "downloading", label: "Downloading" },
   { value: "processing", label: "Processing" },
   { value: "ready", label: "Ready" },
   { value: "published", label: "Published" },
-  { value: "processing_failed", label: "Processing failed" },
-  { value: "storage_failed", label: "Storage failed" },
+  { value: "failed", label: "Failed" },
   { value: "archived", label: "Archived" },
 ];
 

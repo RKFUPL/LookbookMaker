@@ -931,7 +931,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
 
   async function share() {
     const currentVisible = visiblePageNumbers(bookModel, currentIndex, orientation);
-    const url = `${window.location.origin}${activeCatalog.publicUrl}?page=${currentVisible[0] || 1}`;
+    const url = `${activeCatalog.publicUrl}?page=${currentVisible[0] || 1}`;
     try {
       if (navigator.share) await navigator.share({ title: activeCatalog.title, text: activeCatalog.description, url });
       else {

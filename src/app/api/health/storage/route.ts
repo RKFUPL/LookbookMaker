@@ -7,11 +7,10 @@ export async function GET() {
     return NextResponse.json(
       {
         ok: true,
-        storage: `${health.provider} storage: connected`,
+        storage: "persistent disk storage: connected",
         provider: health.provider,
-        bucket: health.bucket,
+        root: health.root,
         publicAssetBase: health.publicBaseUrl || null,
-        checkedObjectKey: health.checkedObjectKey || null,
       },
       { headers: { "Cache-Control": "no-store" } },
     );

@@ -36,41 +36,34 @@ export async function PUT(request: Request, context: Context) {
     const input = catalogUpdateSchema.parse(await readJson(request));
     await connectDb();
     const catalog = await findCatalog((await context.params).id);
-    if (input.title && input.title !== catalog.title) catalog.slug = await uniqueSlug(`${input.title} ${input.season || catalog.season}`, String(catalog._id));
-    const sourceChanged = input.sourceUrl !== undefined && input.sourceUrl !== (catalog.sourceUrl || "");
+    if (input.title && input.title !== catalog.title) catalog.slug = await uniqueSlug(input.title, String(catalog._id));
+    const sourceChanged = input.pdfUrl !== undefined && input.pdfUrl !== (catalog.sourcePdfUrl || catalog.sourceUrl || "");
     if (sourceChanged) {
-      if (catalog.status === "processing") throw new ApiError(409, "Wait for current processing to finish before changing the PDF source.");
-      if (!input.sourceUrl) throw new ApiError(400, "A PDF source URL is required.");
+      if (["downloading", "processing"].includes(catalog.status)) throw new ApiError(409, "Wait for current processing to finish before changing the PDF source.");
+      if (!input.pdfUrl) throw new ApiError(400, "A PDF source URL is required.");
       try {
-        await assertSafeRemoteUrl(input.sourceUrl);
-      } catch (reason) {
-        throw new ApiError(400, reason instanceof Error ? reason.message : "The PDF source URL is not allowed.", "INVALID_SOURCE_URL");
+        await assertSafeRemoteUrl(input.pdfUrl);
+      } catch {
+        throw new ApiError(400, "Unable to import this PDF.", "INVALID_SOURCE_URL");
       }
     }
-    const { collection, sourceUrl, status, ...details } = input;
+    const { collection, pdfUrl, status, ...details } = input;
     Object.assign(catalog, details, {
       ...(collection ? { collectionName: collection } : {}),
-      ...(sourceUrl !== undefined ? { sourceUrl, sourcePdfUrl: sourceUrl, sourceType: "external_url" } : {}),
+      ...(pdfUrl !== undefined ? { sourceUrl: undefined, sourcePdfUrl: pdfUrl, sourceType: "external_url" } : {}),
       ...(status ? { status } : {}),
       updatedBy: staff.userId,
     });
     if (sourceChanged) {
-      catalog.sourceKey = undefined;
-      catalog.sourcePdfUrl = sourceUrl;
+      catalog.sourceUrl = undefined;
+      catalog.sourcePdfUrl = pdfUrl;
       catalog.sourceType = "external_url";
-      catalog.sourceSize = undefined;
-      catalog.sourceEtag = undefined;
-      catalog.sourceContentType = undefined;
-      catalog.originalFilename = undefined;
-      catalog.pages = [];
-      catalog.pageCount = 0;
-      catalog.width = 0;
-      catalog.height = 0;
-      catalog.assetVersion = undefined;
-      catalog.status = "processing";
+      catalog.status = "downloading";
       catalog.processingProgress = 1;
-      catalog.processingMessage = "Queued to fetch the source PDF...";
+      catalog.processingMessage = "Downloading PDF...";
       catalog.processingError = "";
+      catalog.failureCode = undefined;
+      catalog.failureDetail = "";
     }
     await catalog.save();
     if (sourceChanged) {
@@ -87,7 +80,7 @@ export async function DELETE(_: Request, context: Context) {
     await connectDb();
     const catalog = await findCatalog((await context.params).id);
     const id = String(catalog._id);
-    if (catalog.status === "processing") throw new ApiError(409, "Wait for processing to finish before deleting this catalog.");
+    if (["downloading", "processing"].includes(catalog.status)) throw new ApiError(409, "Wait for processing to finish before deleting this catalog.");
     await Promise.all([
       Catalog.deleteOne({ _id: catalog._id }),
       ProcessingJob.deleteMany({ catalogId: catalog._id }),

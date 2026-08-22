@@ -1,4 +1,5 @@
-export type CatalogStatus = "draft" | "uploading" | "processing" | "ready" | "published" | "archived" | "error" | "processing_failed" | "storage_failed";
+export type CatalogStatus = "draft" | "downloading" | "processing" | "ready" | "published" | "failed" | "archived";
+export type CatalogFailureCode = "download_failed" | "processing_failed" | "storage_missing";
 
 export type ProductLink = {
   sku: string;
@@ -65,9 +66,10 @@ export type CatalogDto = {
   processingProgress: number;
   processingMessage: string;
   processingError: string;
+  failureCode: CatalogFailureCode | null;
+  failureDetail: string;
   coverImageUrl: string | null;
-  sourceUrl: string;
-  sourcePdfUrl?: string;
+  sourcePdfUrl: string;
   sourceType?: "external_url" | "uploaded";
   assetBasePrefix?: string;
   originalFilename: string;

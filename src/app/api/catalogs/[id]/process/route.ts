@@ -13,15 +13,24 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     const id = (await params).id;
     if (!isValidObjectId(id)) throw new ApiError(404, "Catalog not found.");
     const catalog = await Catalog.findById(id);
-    if (!catalog?.sourceKey && !catalog?.sourceUrl && !catalog?.sourcePdfUrl) throw new ApiError(409, "Add a source PDF URL before processing.");
-    if (["uploading", "processing"].includes(catalog.status)) throw new ApiError(409, "Catalog is already processing.");
+    if (!catalog?.sourceKey && !catalog?.sourceUrl && !catalog?.sourcePdfUrl) {
+      throw new ApiError(409, "Add a source PDF URL before processing.");
+    }
+    if (["downloading", "processing"].includes(catalog.status)) {
+      throw new ApiError(409, "Catalog is already processing.");
+    }
+
     await ProcessingJob.deleteMany({ catalogId: catalog._id, status: { $in: ["queued", "failed"] } });
     await ProcessingJob.create({ catalogId: catalog._id, status: "queued", availableAt: new Date() });
-    catalog.status = "processing";
+    catalog.status = "downloading";
     catalog.processingProgress = 1;
-    catalog.processingMessage = "Queued for processing…";
+    catalog.processingMessage = "Downloading PDF...";
     catalog.processingError = "";
+    catalog.failureCode = undefined;
+    catalog.failureDetail = "";
     await catalog.save();
     return NextResponse.json({ ok: true });
-  } catch (error) { return apiError(error); }
+  } catch (error) {
+    return apiError(error);
+  }
 }

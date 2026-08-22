@@ -41,11 +41,13 @@ const catalogSchema = new Schema(
     title: { type: String, required: true, trim: true, maxlength: 160, index: true },
     slug: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
     collectionName: { type: String, required: true, trim: true, maxlength: 120, index: true },
-    season: { type: String, required: true, trim: true, maxlength: 80 },
+    season: { type: String, default: "", trim: true, maxlength: 80 },
     description: { type: String, default: "", maxlength: 2000 },
     status: {
       type: String,
-      enum: ["draft", "uploading", "processing", "ready", "published", "archived", "error", "processing_failed", "storage_failed"],
+      // Legacy values remain readable so existing records can be edited and
+      // reprocessed; all current workflows write the normalized states first.
+      enum: ["draft", "downloading", "processing", "ready", "published", "failed", "archived", "uploading", "error", "processing_failed", "storage_failed"],
       default: "draft",
       index: true,
     },
@@ -76,6 +78,8 @@ const catalogSchema = new Schema(
     processingProgress: { type: Number, default: 0 },
     processingMessage: { type: String, default: "" },
     processingError: { type: String, default: "" },
+    failureCode: { type: String, enum: ["download_failed", "processing_failed", "storage_missing"] },
+    failureDetail: { type: String, default: "", maxlength: 2000 },
     allowDownload: { type: Boolean, default: true },
     showBackButton: { type: Boolean, default: false },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },

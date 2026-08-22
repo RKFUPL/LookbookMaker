@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { isValidObjectId } from "mongoose";
 import { NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth";
@@ -17,15 +18,17 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     if (!isValidObjectId(id)) throw new ApiError(404, "Catalog not found.");
     const source = await Catalog.findById(id);
     if (!source) throw new ApiError(404, "Catalog not found.");
-    if (["uploading", "processing"].includes(source.status)) throw new ApiError(409, "Wait for processing to finish before duplicating.");
+    if (["downloading", "processing"].includes(source.status)) throw new ApiError(409, "Wait for processing to finish before duplicating.");
+
+    const assetVersion = randomUUID();
+    const assetPrefix = `catalogs/pending/assets/${assetVersion}/`;
 
     const duplicate = await Catalog.create({
       title: `${source.title} — Copy`,
-      slug: await uniqueSlug(`${source.title} ${source.season} copy`),
+      slug: await uniqueSlug(`${source.title} copy`),
       collectionName: source.collectionName,
       season: source.season,
       description: source.description,
-      sourceUrl: source.sourceUrl,
       sourcePdfUrl: source.sourcePdfUrl || source.sourceUrl,
       sourceType: source.sourceType || (source.sourceUrl ? "external_url" : source.sourceKey ? "uploaded" : undefined),
       status: source.pageCount ? "ready" : "draft",
@@ -41,6 +44,9 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     });
     const targetId = String(duplicate._id);
     duplicateId = targetId;
+    const targetAssetPrefix = assetPrefix.replace("catalogs/pending/", `catalogs/${targetId}/`);
+    duplicate.assetVersion = assetVersion;
+    duplicate.assetBasePrefix = targetAssetPrefix;
 
     if (source.sourceKey) {
       const target = `catalogs/${targetId}/source/source.pdf`;
@@ -58,9 +64,9 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       const stem = String(page.page).padStart(4, "0");
       const sourceMediumKey = page.mediumKey || page.largeKey || page.imageKey || page.thumbnailKey;
       const sourceLargeKey = page.largeKey || page.imageKey || page.mediumKey || page.thumbnailKey;
-      const mediumKey = `catalogs/${targetId}/pages/medium/${stem}.webp`;
-      const largeKey = `catalogs/${targetId}/pages/large/${stem}.webp`;
-      const thumbnailKey = `catalogs/${targetId}/thumbnails/${stem}.webp`;
+      const mediumKey = `${targetAssetPrefix}medium/${stem}.webp`;
+      const largeKey = `${targetAssetPrefix}large/${stem}.webp`;
+      const thumbnailKey = `${targetAssetPrefix}thumb/${stem}.webp`;
       await Promise.all([
         copyObject(sourceMediumKey, mediumKey),
         copyObject(sourceLargeKey, largeKey),

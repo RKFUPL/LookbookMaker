@@ -3,11 +3,11 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Archive, Copy, ExternalLink, MoreHorizontal, Pencil, Send, Trash2, Unlink } from "lucide-react";
+import { Archive, Copy, ExternalLink, MoreHorizontal, Pencil, RotateCcw, Send, Trash2, Unlink } from "lucide-react";
 import type { CatalogDto } from "@/types/catalog";
 
 function isProcessingFailure(status: string) {
-  return ["error", "processing_failed", "storage_failed"].includes(status);
+  return status === "failed";
 }
 
 export function CatalogCard({ catalog, onChanged }: { catalog: CatalogDto; onChanged: () => void }) {
@@ -36,23 +36,23 @@ export function CatalogCard({ catalog, onChanged }: { catalog: CatalogDto; onCha
   }
 
   async function copyLink() {
-    await navigator.clipboard.writeText(`${window.location.origin}${catalog.publicUrl}`);
+    await navigator.clipboard.writeText(catalog.publicUrl);
     setMenu(false);
   }
 
-  const canPreview = catalog.pageCount > 0 && !["processing", "uploading"].includes(catalog.status);
+  const canPreview = catalog.pageCount > 0 && !["downloading", "processing", "failed"].includes(catalog.status);
   return (
     <article className="catalog-card">
       <div className="catalog-cover">
         {catalog.coverImageUrl ? <img src={catalog.coverImageUrl} alt="" loading="lazy" /> : <div className="catalog-cover-placeholder">RK</div>}
-        <span className={`status-pill ${catalog.status}`}>{catalog.status === "processing" ? `${catalog.processingProgress}% processed` : catalog.status}</span>
+        <span className={`status-pill ${catalog.status}`}>{["downloading", "processing"].includes(catalog.status) ? `${catalog.processingProgress}% ${catalog.status}` : catalog.status}</span>
       </div>
       <div className="catalog-body">
-        <div className="catalog-collection">{catalog.collection} · {catalog.season}</div>
+        <div className="catalog-collection">{catalog.collection}{catalog.season ? ` · ${catalog.season}` : ""}</div>
         <h2 className="catalog-title" title={catalog.title}>{catalog.title}</h2>
         <div className="catalog-meta"><span>{catalog.pageCount || "—"} pages</span><span>{catalog.views.toLocaleString()} views</span><span>{new Date(catalog.updatedAt).toLocaleDateString(undefined, { day: "2-digit", month: "short" })}</span></div>
         <div className="catalog-actions">
-          {catalog.status === "uploading" || isProcessingFailure(catalog.status) ? <Link className="btn btn-secondary" href={`/admin/catalogs/${catalog.id}/edit`}>{catalog.status === "uploading" ? "Continue upload" : "Fix catalog"}</Link> : canPreview ? <Link className="btn btn-secondary" href={`/admin/catalogs/${catalog.id}/preview`}>Preview</Link> : <button className="btn btn-secondary" disabled>Processing</button>}
+          {isProcessingFailure(catalog.status) ? <button className="btn btn-secondary" disabled={busy} onClick={() => action("/process")}>{catalog.failureCode === "download_failed" ? "Retry" : catalog.failureCode === "storage_missing" ? "Reprocess" : "Retry processing"}</button> : canPreview ? <Link className="btn btn-secondary" href={`/admin/catalogs/${catalog.id}/preview`}>Preview</Link> : <button className="btn btn-secondary" disabled>{catalog.status === "downloading" ? "Downloading" : "Processing"}</button>}
           {catalog.status === "ready" && <button className="btn btn-primary" disabled={busy} onClick={() => action("/publish")}><Send size={12} /> Publish</button>}
           {catalog.status === "published" && <a className="btn btn-primary" href={catalog.publicUrl} target="_blank" rel="noreferrer"><ExternalLink size={12} /> Open</a>}
           <div className="more" ref={root}>
@@ -61,6 +61,7 @@ export function CatalogCard({ catalog, onChanged }: { catalog: CatalogDto; onCha
               <Link href={`/admin/catalogs/${catalog.id}/edit`}><Pencil size={14} /> Edit details</Link>
               {catalog.status === "published" && <button type="button" onClick={() => action("/unpublish")}><Unlink size={14} /> Unpublish</button>}
               {catalog.status === "published" && <button type="button" onClick={copyLink}><Copy size={14} /> Copy public link</button>}
+              {catalog.sourcePdfUrl && !["downloading", "processing"].includes(catalog.status) && <button type="button" onClick={() => action("/process")}><RotateCcw size={14} /> Reprocess catalog</button>}
               <button type="button" onClick={() => action("/duplicate")}><Copy size={14} /> Duplicate</button>
               {catalog.status !== "archived" && <button type="button" onClick={() => action("", "PUT", { status: "archived" })}><Archive size={14} /> Archive</button>}
               <button className="danger" type="button" onClick={() => { if (window.confirm(`Delete “${catalog.title}” and all its stored files? This cannot be undone.`)) action("", "DELETE"); }}><Trash2 size={14} /> Delete</button>

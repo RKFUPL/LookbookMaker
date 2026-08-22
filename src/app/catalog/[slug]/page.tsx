@@ -20,6 +20,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const catalog = await getCatalog(slug, false);
   if (!catalog) return { title: "Catalog unavailable", robots: { index: false, follow: false } };
   const description = catalog.description || `Explore ${catalog.title} by Rashika Kapoor.`;
+  const coverImage = catalog.coverImageUrl ? new URL(catalog.coverImageUrl, appUrl()).toString() : null;
   return {
     title: catalog.title,
     description,
@@ -30,9 +31,9 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
       siteName: "Rashika Kapoor",
       title: catalog.title,
       description,
-      images: catalog.coverImageUrl ? [{ url: catalog.coverImageUrl, alt: catalog.title }] : [],
+      images: coverImage ? [{ url: coverImage, alt: catalog.title }] : [],
     },
-    twitter: { card: "summary_large_image", title: catalog.title, description, images: catalog.coverImageUrl ? [catalog.coverImageUrl] : [] },
+    twitter: { card: "summary_large_image", title: catalog.title, description, images: coverImage ? [coverImage] : [] },
   };
 }
 

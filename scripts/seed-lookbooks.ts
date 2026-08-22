@@ -32,9 +32,9 @@ async function cancelPendingUploads() {
 
 async function queueSource(catalog: HydratedDocument<ICatalog>, definition: Lookbook, staffId: mongoose.Types.ObjectId) {
   if (!catalog || !definition.pdfUrl) return;
-  const sameSource = catalog.sourceUrl === definition.pdfUrl;
-  if (sameSource && ["ready", "published", "processing"].includes(catalog.status)) return;
-  catalog.sourceUrl = definition.pdfUrl;
+  const sameSource = (catalog.sourcePdfUrl || catalog.sourceUrl) === definition.pdfUrl;
+  if (sameSource && ["ready", "published", "downloading", "processing"].includes(catalog.status)) return;
+  catalog.sourceUrl = undefined;
   catalog.sourcePdfUrl = definition.pdfUrl;
   catalog.sourceType = "external_url";
   catalog.sourceKey = undefined;
@@ -47,10 +47,12 @@ async function queueSource(catalog: HydratedDocument<ICatalog>, definition: Look
   catalog.height = 0;
   catalog.assetVersion = undefined;
   catalog.assetBasePrefix = undefined;
-  catalog.status = "processing";
+  catalog.status = "downloading";
   catalog.processingProgress = 1;
-  catalog.processingMessage = "Queued to fetch the source PDF...";
+  catalog.processingMessage = "Downloading PDF...";
   catalog.processingError = "";
+  catalog.failureCode = undefined;
+  catalog.failureDetail = "";
   catalog.updatedBy = staffId;
   await catalog.save();
   await ProcessingJob.deleteMany({ catalogId: catalog._id, status: { $in: ["queued", "leased", "failed"] } });
@@ -74,12 +76,11 @@ async function createOrReuse(definition: Lookbook, staffId: mongoose.Types.Objec
       collectionName: definition.collection,
       season: definition.season,
       description: definition.description,
-      sourceUrl: definition.pdfUrl || undefined,
       sourcePdfUrl: definition.pdfUrl || undefined,
       sourceType: definition.pdfUrl ? "external_url" : undefined,
-      status: definition.pdfUrl ? "processing" : "draft",
+      status: definition.pdfUrl ? "downloading" : "draft",
       processingProgress: definition.pdfUrl ? 1 : 0,
-      processingMessage: definition.pdfUrl ? "Queued to fetch the source PDF..." : "Add a PDF source URL to continue.",
+      processingMessage: definition.pdfUrl ? "Downloading PDF..." : "Add a PDF source URL to continue.",
       allowDownload: true,
       showBackButton: false,
       createdBy: staffId,

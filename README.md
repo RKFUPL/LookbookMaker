@@ -1,86 +1,127 @@
-# RK Fashion Digital Catalogs
+# RK Fashion Digital Lookbooks
 
-A self-hosted digital catalog studio and editorial flipbook viewer for Rashika Kapoor. Staff can import externally hosted PDFs or upload PDFs, a server-side worker creates optimized page assets, R2 stores the processed assets, and MongoDB stores metadata only.
+A self-hosted Next.js catalog studio and editorial flipbook viewer for Rashika Kapoor. Staff provide an HTTPS PDF URL; the server downloads it to temporary storage, Poppler renders its pages, Sharp generates optimized WebP assets, Render Persistent Disk keeps those assets across restarts, and MongoDB stores catalog metadata and job state.
+
+No Cloudflare R2, S3, Wix, external object store, manual page conversion, or browser-side PDF processing is required.
 
 ## Architecture
 
 ```text
-Static.app PDF URL --server-side download--> temporary Render storage
-                                             |
-Staff/browser --> Next.js --> MongoDB metadata + job queue
-                     |
-Public viewer ------> CDN/R2 page assets <-- worker (Poppler + Sharp)
+External HTTPS PDF
+        |
+        | server-side streamed download
+        v
+temporary PDF -> Poppler + Sharp worker -> /var/data/objects/catalogs/{catalogId}/
+                                              |
+                                              v
+                                     MongoDB page metadata
+                                              |
+                                              v
+Next.js viewer <- /api/storage/object?key=... <- persistent page images
 ```
 
-External source PDFs remain at their original URL and are only downloaded into temporary processing storage. Public catalog pages use direct CDN/R2 URLs; private/admin assets use signed URLs. The browser never converts the original PDF.
+The external URL remains the PDF source of truth in MongoDB as `sourceType: external_url` and `sourcePdfUrl`. Temporary PDFs and intermediate JPEGs are removed after every attempt.
 
-## Local setup
+Generated files use immutable, versioned keys:
 
-Prerequisites: Node.js 22+, MongoDB, and Poppler installed locally, or Docker.
+```text
+/var/data/objects/
+  catalogs/{catalogId}/assets/{assetVersion}/
+    large/0001.webp
+    medium/0001.webp
+    thumb/0001.webp
+```
 
-1. Copy `.env.example` to `.env` and replace `AUTH_SECRET` and the bootstrap password.
-2. Run `npm install`.
-3. Start MongoDB locally or point `.env` at MongoDB Atlas. Keep `STORAGE_PROVIDER=local` for local assets, or configure R2 for an end-to-end storage test.
-4. Create the first staff account with `npm run seed:admin`.
-5. In separate terminals, run `npm run dev` and `npm run worker`.
-6. Open `http://localhost:3000/login`.
+Public asset responses use `Cache-Control: public, max-age=31536000, immutable`. Missing metadata or files return 404; a missing generated file also marks the catalog with `failureCode: storage_missing` so staff can reprocess it.
 
-The worker requires `pdfinfo` and `pdftoppm`. They are included in the Docker image; on Debian/Ubuntu install `poppler-utils`, and on macOS install `poppler` with Homebrew.
+## Catalog workflow
 
-## Cloudflare R2 production settings
+1. In the staff studio, enter Catalog name, Collection, Description, and PDF URL.
+2. Select **IMPORT & CREATE LOOKBOOK**.
+3. The MongoDB-backed worker reports `downloading`, then `processing`, and finally `ready`.
+4. Preview the generated image-based flipbook and publish it.
+5. The public catalog is available at `/catalog/{slug}`. Slugs are created from the catalog title.
 
-Set these server-only variables in Render:
+The UI reports download, page rendering, thumbnail generation, and catalog-saving progress. A failed job uses status `failed` plus one of these recovery codes:
+
+- `download_failed` — Retry
+- `processing_failed` — Retry processing
+- `storage_missing` — Reprocess
+
+Reprocessing downloads `sourcePdfUrl` again, generates a new immutable asset version, verifies every large, medium, and thumbnail file, swaps MongoDB metadata only after verification succeeds, and then removes the old asset version.
+
+## Local development
+
+Prerequisites: Node.js 22+, MongoDB, and Poppler (`pdfinfo` and `pdftoppm`), or Docker.
+
+1. Copy `.env.example` to `.env`, set MongoDB credentials, and replace `AUTH_SECRET` and the bootstrap password.
+2. Install packages with `npm install`.
+3. Create the first account with `npm run seed:admin`.
+4. In separate terminals, run `npm run dev` and `npm run worker`.
+5. Open `http://localhost:3000/login`.
+
+Development assets default to `./data/objects` and can be changed with `LOCAL_STORAGE_ROOT`.
+
+Docker Compose mounts a named volume at `/var/data/objects` and starts the web server and catalog worker together:
+
+```text
+docker compose up --build
+docker compose --profile setup run --rm seed-admin
+```
+
+## Render production deployment
+
+The web service must have a paid Render Persistent Disk configured exactly as follows:
+
+```text
+Mount path: /var/data/objects
+```
+
+The included `render.yaml` creates a single service instance with a 10 GB disk at that path and sets:
 
 ```text
 APP_URL=https://lookbookmaker.onrender.com
-STORAGE_PROVIDER=r2
-R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
-R2_REGION=auto
-R2_BUCKET=rk-catalogs
-R2_ACCESS_KEY_ID=<server-only-access-key>
-R2_SECRET_ACCESS_KEY=<server-only-secret-key>
-R2_PUBLIC_BASE_URL=https://cdn.rashikapoorofficial.com
-# Optional: an existing object used for startup HEAD verification.
-R2_HEALTHCHECK_KEY=catalogs/<catalog-id>/assets/<version>/large/0001.webp
+LOCAL_STORAGE_ROOT=/var/data/objects
 ```
 
-`R2_PUBLIC_BASE_URL` must point to a public R2 custom domain or CDN. Public catalog APIs return direct CDN URLs for immutable page assets; the application does not proxy each page through `/api/storage/object`.
+Set `MONGODB_URI`, `AUTH_SECRET`, and `BOOTSTRAP_ADMIN_PASSWORD` as Render secrets. Do not add storage-provider or object-store credentials.
 
-Production fails during startup unless `STORAGE_PROVIDER=r2`, `APP_URL` is a public HTTPS URL, and all required R2 variables are present. Startup prints only the provider, bucket, public asset base, and a safe `R2 storage: connected` result. The same check is available at `/api/health/storage`.
+The `npm run start:render` startup command refuses to launch in production unless:
 
-Direct browser uploads require R2 bucket CORS. Restrict the origin to the catalog application in production:
+- `APP_URL` is a public HTTPS origin;
+- the configured storage root is exactly `/var/data/objects`;
+- that directory exists and is writable; and
+- both Poppler tools are available.
 
-```json
-[
-  {
-    "AllowedOrigins": ["https://lookbookmaker.onrender.com"],
-    "AllowedMethods": ["PUT", "GET", "HEAD"],
-    "AllowedHeaders": ["Content-Type"],
-    "ExposeHeaders": ["ETag"],
-    "MaxAgeSeconds": 3600
-  }
-]
-```
-
-The Render start command runs the web server and one catalog worker together. MongoDB job leasing prevents duplicate processing and retries failed jobs with backoff.
-
-For existing URL-backed catalogs, configure R2 and run:
+When the disk check fails, startup exits with:
 
 ```text
-npm run migrate:r2 -- --confirm
+Persistent catalog storage is not mounted at /var/data/objects.
 ```
 
-This queues external-URL catalogs for reprocessing, preserves product links, and does not create permanent source PDF copies.
+There is no fallback to an ephemeral production directory. `/api/health/storage` performs the same writable-disk check.
 
-## Security and operations
+## Restart-safety acceptance test
+
+Use this source:
+
+```text
+https://gentle-kangaroo.staticdomains.app/SANDOOKLOOKBOOK.pdf
+```
+
+1. Create and process **Sandook Lookbook**.
+2. Confirm the catalog becomes ready, then preview and publish it.
+3. Open `/catalog/sandook-lookbook`, navigate forward and backward, and refresh.
+4. In the Render dashboard, restart or redeploy the service.
+5. Open the same URL and verify its cover, pages, thumbnails, and navigation still work.
+6. Confirm generated files remain under `/var/data/objects/catalogs/{catalogId}/assets/{assetVersion}/`.
+
+If assets disappear after restart, the Render disk is not mounted at the required path. Do not work around that failure with container-local storage.
+
+## Security and operational notes
 
 - Admin APIs require an HTTP-only signed staff session.
-- Upload keys are UUID-based and never use user filenames.
-- Unpublished catalogs are never returned by public APIs or routes.
-- Uploaded original PDFs download through signed R2 URLs. URL-imported originals redirect to their external source URL.
-- Set a 32+ character `AUTH_SECRET`, keep R2 credentials server-only, use TLS, restrict storage CORS, and place the app behind a rate-limiting proxy/WAF in production.
-- Configure R2 lifecycle rules for abandoned upload keys and MongoDB backups. Processed assets are immutable and CDN-cacheable.
-
-## API surface
-
-The endpoints under `/api/catalogs` implement CRUD, URL import, optional upload, publish/unpublish, public lookup, secure download, reprocessing, duplication, and view events. Public catalog responses contain backend-generated asset URLs; the frontend never constructs storage URLs itself.
+- Remote imports require HTTPS, reject credentials and private/internal hosts, validate redirect targets, stream with an enforced byte limit, and verify the PDF signature before Poppler opens the file.
+- The worker caps PDFs at 1,000 pages and at `MAX_PDF_SIZE_MB`.
+- Public viewers receive processed image URLs, never the original PDF for page rendering.
+- Run only one Render service instance with this attached disk; MongoDB job leasing still prevents duplicate work within the web/worker process pair.

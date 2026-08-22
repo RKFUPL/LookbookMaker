@@ -1,11 +1,20 @@
 import { lookup } from "node:dns/promises";
 import { createWriteStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { open, stat, unlink } from "node:fs/promises";
 import { isIP } from "node:net";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 const MAX_REDIRECTS = 5;
+
+export class PdfDownloadError extends Error {
+  readonly failureCode = "download_failed" as const;
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "PdfDownloadError";
+  }
+}
 
 function blockedIpv4(address: string) {
   const parts = address.split(".").map(Number);
@@ -42,32 +51,66 @@ export async function assertSafeRemoteUrl(value: string) {
 }
 
 export async function downloadRemotePdf(sourceUrl: string, destination: string, maxBytes: number) {
-  let currentUrl = await assertSafeRemoteUrl(sourceUrl);
-  for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
-    const response = await fetch(currentUrl, {
-      redirect: "manual",
-      headers: { Accept: "application/pdf, application/octet-stream;q=0.9, */*;q=0.5" },
-      signal: AbortSignal.timeout(120_000),
-    });
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
-      if (!location) throw new Error("The PDF source returned an invalid redirect.");
-      if (redirect === MAX_REDIRECTS) throw new Error("The PDF source redirected too many times.");
-      currentUrl = await assertSafeRemoteUrl(new URL(location, currentUrl).toString());
-      continue;
+  try {
+    let currentUrl = await assertSafeRemoteUrl(sourceUrl);
+    for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
+      const response = await fetch(currentUrl, {
+        redirect: "manual",
+        headers: { Accept: "application/pdf, application/octet-stream;q=0.9" },
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (!location) throw new Error("The PDF source returned an invalid redirect.");
+        if (redirect === MAX_REDIRECTS) throw new Error("The PDF source redirected too many times.");
+        currentUrl = await assertSafeRemoteUrl(new URL(location, currentUrl).toString());
+        continue;
+      }
+      if (!response.ok) throw new Error(`The PDF source returned HTTP ${response.status}.`);
+
+      const contentType = (response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
+      const allowedTypes = new Set(["application/pdf", "application/x-pdf", "application/octet-stream", "binary/octet-stream"]);
+      if (!allowedTypes.has(contentType)) throw new Error("The PDF source did not return a PDF response.");
+
+      const lengthHeader = response.headers.get("content-length");
+      const announcedSize = lengthHeader === null ? null : Number(lengthHeader);
+      if (announcedSize !== null && (!Number.isSafeInteger(announcedSize) || announcedSize <= 0)) {
+        throw new Error("The PDF source returned an empty or invalid file size.");
+      }
+      if (announcedSize !== null && announcedSize > maxBytes) {
+        throw new Error(`The PDF exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`);
+      }
+      if (!response.body) throw new Error("The PDF source returned an empty response.");
+
+      let received = 0;
+      const sizeLimiter = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          received += chunk.length;
+          if (received > maxBytes) {
+            callback(new Error(`The PDF exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`));
+          } else {
+            callback(null, chunk);
+          }
+        },
+      });
+      await pipeline(Readable.fromWeb(response.body as never), sizeLimiter, createWriteStream(destination, { flags: "wx" }));
+
+      const details = await stat(destination);
+      if (!details.size) throw new Error("The PDF source returned an empty file.");
+      const handle = await open(destination, "r");
+      const header = Buffer.alloc(5);
+      try {
+        await handle.read(header, 0, header.length, 0);
+      } finally {
+        await handle.close();
+      }
+      if (header.toString("ascii") !== "%PDF-") throw new Error("The downloaded file is not a valid PDF.");
+      return { size: details.size, contentType: "application/pdf", finalUrl: currentUrl };
     }
-    if (!response.ok) throw new Error(`The PDF source returned HTTP ${response.status}.`);
-    const contentType = (response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
-    if (contentType && !["application/pdf", "application/octet-stream", "binary/octet-stream"].includes(contentType)) {
-      throw new Error("The PDF source did not return a PDF.");
-    }
-    const announcedSize = Number(response.headers.get("content-length") || 0);
-    if (announcedSize > maxBytes) throw new Error(`The PDF exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`);
-    if (!response.body) throw new Error("The PDF source returned an empty response.");
-    await pipeline(Readable.fromWeb(response.body as never), createWriteStream(destination));
-    const details = await stat(destination);
-    if (details.size > maxBytes) throw new Error(`The PDF exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`);
-    return { size: details.size, contentType: contentType || "application/pdf", finalUrl: currentUrl };
+    throw new Error("The PDF source redirected too many times.");
+  } catch (error) {
+    await unlink(destination).catch(() => undefined);
+    if (error instanceof PdfDownloadError) throw error;
+    throw new PdfDownloadError(error instanceof Error ? error.message : "Unable to download the PDF source.", { cause: error });
   }
-  throw new Error("Unable to download the PDF source.");
 }

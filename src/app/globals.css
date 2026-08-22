@@ -122,7 +122,8 @@ a { color: inherit; text-decoration: none; }
 .catalog-cover-placeholder { width: 42%; aspect-ratio: 3/4; background: #551d24; color: rgba(255,255,255,.85); display: grid; place-items: center; font: 32px "Bodoni 72",Didot,serif; box-shadow: 12px 14px 30px rgba(0,0,0,.2); }
 .status-pill { position: absolute; top: 13px; left: 13px; padding: 6px 9px; background: rgba(255,254,251,.91); backdrop-filter: blur(8px); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; font-weight: 800; }
 .status-pill.published { color: var(--success); }
-.status-pill.error { color: var(--danger); }
+.status-pill.failed { color: var(--danger); }
+.status-pill.downloading, .status-pill.processing { color: var(--wine); }
 .catalog-body { padding: 19px; }
 .catalog-collection { color: var(--wine); font-size: 9px; letter-spacing: .18em; text-transform: uppercase; font-weight: 700; }
 .catalog-title { font: 400 25px/1.15 "Bodoni 72", Didot, serif; margin: 7px 0 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

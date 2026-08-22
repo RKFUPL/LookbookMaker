@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { resolve } from "node:path";
-import { getConfig, storageProvider } from "../src/lib/config";
+import { getConfig } from "../src/lib/config";
 import { checkStorageHealth } from "../src/lib/storage";
+import { assertPdfProcessingTools } from "../src/lib/catalog-worker";
 
 const port = process.env.PORT || "10000";
 const environment = { ...process.env, PORT: port };
@@ -32,13 +33,12 @@ function stop(code: number) {
 }
 
 async function main() {
-  const config = getConfig();
-  const provider = storageProvider(config);
+  getConfig();
   const health = await checkStorageHealth();
-  console.log(`Storage provider: ${provider}`);
-  console.log(`Storage bucket: ${health.bucket}`);
-  console.log(`Public asset base: ${health.publicBaseUrl || "local development storage"}`);
-  console.log(`${provider === "r2" ? "R2" : "Local storage"} storage: connected`);
+  await assertPdfProcessingTools();
+  console.log(`Persistent catalog storage: ${health.root}`);
+  console.log(`Public asset route: ${health.publicBaseUrl}`);
+  console.log("PDF processing tools: available");
 
   start([resolve("node_modules/next/dist/bin/next"), "start", "-H", "0.0.0.0", "-p", port]);
   start(["--import", "tsx", resolve("scripts/catalog-worker.ts")]);

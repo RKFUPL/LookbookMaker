@@ -8,7 +8,11 @@ services:
     dockerCommand: npm run start:render
     plan: starter
     numInstances: 1
-    healthCheckPath: /login
+    healthCheckPath: /api/health/storage
+    disk:
+      name: rk-catalog-assets
+      mountPath: /var/data/objects
+      sizeGB: 10
     envVars:
       - key: APP_URL
         value: https://lookbookmaker.onrender.com
@@ -22,30 +26,10 @@ services:
         sync: false
       - key: SESSION_TTL_HOURS
         value: "12"
-      - key: STORAGE_PROVIDER
-        value: r2
-      - key: R2_ENDPOINT
-        sync: false
-      - key: R2_REGION
-        value: auto
-      - key: R2_BUCKET
-        sync: false
-      - key: R2_ACCESS_KEY_ID
-        sync: false
-      - key: R2_SECRET_ACCESS_KEY
-        sync: false
-      - key: R2_PUBLIC_BASE_URL
-        sync: false
-      - key: R2_HEALTHCHECK_KEY
-        sync: false
-      - key: R2_FORCE_PATH_STYLE
-        value: "false"
-      - key: SIGNED_URL_TTL_SECONDS
-        value: "3600"
+      - key: LOCAL_STORAGE_ROOT
+        value: /var/data/objects
       - key: MAX_PDF_SIZE_MB
         value: "250"
-      - key: MAX_COVER_SIZE_MB
-        value: "10"
       - key: PDFINFO_BIN
         value: pdfinfo
       - key: PDFTOPPM_BIN
