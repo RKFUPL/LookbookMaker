@@ -6,6 +6,7 @@ import { apiError, ApiError } from "@/lib/http";
 import { uniqueSlug } from "@/lib/slug";
 import { serializeCatalog } from "@/lib/catalog-serializer";
 import { Catalog } from "@/models/Catalog";
+import { normalizeCatalogSource } from "@/lib/catalog-source";
 
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -15,13 +16,14 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     if (!isValidObjectId(id)) throw new ApiError(404, "Catalog not found.");
     const source = await Catalog.findById(id);
     if (!source) throw new ApiError(404, "Catalog not found.");
+    const resolvedSource = await normalizeCatalogSource(source);
     const duplicate = await Catalog.create({
       title: `${source.title} — Copy`,
       slug: await uniqueSlug(`${source.title} copy`),
       collectionName: source.collectionName,
       season: source.season,
       description: source.description,
-      sourcePdfUrl: source.sourcePdfUrl,
+      sourcePdfUrl: resolvedSource.sourcePdfUrl,
       sourceType: "external_url",
       status: source.status === "published" ? "imported" : source.status,
       pageCount: source.pageCount || 0,

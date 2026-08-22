@@ -1,5 +1,6 @@
 import type { ICatalog } from "@/models/Catalog";
 import { appUrl } from "@/lib/config";
+import { resolveCatalogSource } from "@/lib/catalog-source";
 import type { CatalogDto, CatalogFailureCode, CatalogStatus, PublicCatalogDto } from "@/types/catalog";
 
 type CatalogLike = ICatalog & { _id: unknown; createdAt: Date; updatedAt: Date };
@@ -18,7 +19,7 @@ function normalizedFailureCode(catalog: CatalogLike): CatalogFailureCode | null 
 }
 
 function sourceUrl(catalog: CatalogLike) {
-  return catalog.sourcePdfUrl || "";
+  return resolveCatalogSource(catalog as CatalogLike & Record<string, unknown>).sourcePdfUrl;
 }
 
 export async function serializeCatalog(catalog: CatalogLike): Promise<CatalogDto> {

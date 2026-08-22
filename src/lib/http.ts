@@ -16,8 +16,9 @@ export function apiError(error: unknown) {
     return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
   }
   if (error instanceof ZodError) {
+    const message = error.issues[0]?.message || "Please check the submitted fields.";
     return NextResponse.json(
-      { error: "Please check the submitted fields.", code: "VALIDATION_ERROR", details: error.flatten() },
+      { error: message, code: "VALIDATION_ERROR", details: error.flatten() },
       { status: 400 },
     );
   }

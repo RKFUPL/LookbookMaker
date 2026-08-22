@@ -14,6 +14,8 @@ const catalogSchema = new Schema(
       index: true,
     },
     sourcePdfUrl: { type: String, default: "" },
+    // Kept for one-way migration of catalogs created before sourcePdfUrl.
+    sourceUrl: { type: String, default: "" },
     sourceType: { type: String, enum: ["external_url"], default: "external_url" },
     sourceSize: Number,
     originalFilename: String,

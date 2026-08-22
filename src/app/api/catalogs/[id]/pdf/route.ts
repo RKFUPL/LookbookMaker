@@ -4,13 +4,14 @@ import { getStaffSession } from "@/lib/auth";
 import { connectDb } from "@/lib/db";
 import { Catalog } from "@/models/Catalog";
 import { assertSafeRemoteUrl } from "@/lib/remote-source";
+import { normalizeCatalogSource } from "@/lib/catalog-source";
 
 const MAX_REDIRECTS = 5;
 const FORWARDED_REQUEST_HEADERS = ["range", "if-range", "if-none-match", "if-modified-since"] as const;
 const FORWARDED_RESPONSE_HEADERS = ["content-type", "content-length", "content-range", "accept-ranges", "etag", "last-modified"] as const;
 
-function errorResponse(status: number, message = "Unable to load the source PDF.") {
-  return NextResponse.json({ error: message }, { status, headers: { "Cache-Control": "no-store" } });
+function errorResponse(status: number, message = "Unable to load the source PDF.", code?: string) {
+  return NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
 async function fetchSource(url: string, request: Request) {
@@ -39,15 +40,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     await connectDb();
     const id = (await params).id;
     if (!isValidObjectId(id)) return errorResponse(404, "Catalog not found.");
-    const catalog = await Catalog.findById(id).select("sourcePdfUrl status slug");
-    if (!catalog?.sourcePdfUrl) return errorResponse(404, "The source PDF is not configured.");
+    // Read the complete legacy document so older source field names can be normalized.
+    const catalog = await Catalog.findById(id);
+    if (!catalog) return errorResponse(404, "Catalog not found.");
+    const source = await normalizeCatalogSource(catalog);
+    if (!source.sourcePdfUrl) return errorResponse(422, "Catalog has no source PDF URL configured.", "SOURCE_MISSING");
 
     // Published readers are public. Staff preview may proxy imported/draft files.
     if (catalog.status !== "published" && !(await getStaffSession())) return errorResponse(404, "Catalog not found.");
 
     let upstream: Response;
     try {
-      upstream = await fetchSource(catalog.sourcePdfUrl, request);
+      upstream = await fetchSource(source.sourcePdfUrl, request);
     } catch (error) {
       console.error("Source PDF proxy fetch failed:", error);
       return errorResponse(502);

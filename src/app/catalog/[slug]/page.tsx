@@ -5,6 +5,7 @@ import { appUrl } from "@/lib/config";
 import { serializePublicCatalog } from "@/lib/catalog-serializer";
 import { Catalog } from "@/models/Catalog";
 import { CatalogViewer } from "@/components/viewer/CatalogViewer";
+import { normalizeCatalogSource } from "@/lib/catalog-source";
 
 export const dynamic = "force-dynamic";
 
@@ -12,11 +13,12 @@ async function getCatalog(slug: string) {
   await connectDb();
   const catalog = await Catalog.findOne({ slug: slug.toLowerCase(), status: "published" });
   if (!catalog) return null;
+  const source = await normalizeCatalogSource(catalog);
   const payload = await serializePublicCatalog(catalog);
   console.info("[RK CATALOG]", {
     slug: payload.slug,
     resolvedCatalogId: payload.id,
-    sourcePdfUrl: catalog.sourcePdfUrl || "",
+    sourcePdfUrlPresent: Boolean(source.sourcePdfUrl),
     pdfProxyUrl: `/api/catalogs/${payload.id}/pdf`,
   });
   return payload;

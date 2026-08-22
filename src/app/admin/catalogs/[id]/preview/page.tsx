@@ -4,6 +4,7 @@ import { connectDb } from "@/lib/db";
 import { serializePublicCatalog } from "@/lib/catalog-serializer";
 import { Catalog } from "@/models/Catalog";
 import { CatalogViewer } from "@/components/viewer/CatalogViewer";
+import { normalizeCatalogSource } from "@/lib/catalog-source";
 
 export const metadata = { title: "Catalog preview", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -13,7 +14,9 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
   if (!isValidObjectId(id)) notFound();
   await connectDb();
   const document = await Catalog.findById(id);
-  if (!document || !document.sourcePdfUrl) notFound();
+  if (!document) notFound();
+  const source = await normalizeCatalogSource(document);
+  if (!source.sourcePdfUrl) notFound();
   const catalog = await serializePublicCatalog(document);
   return <CatalogViewer catalog={catalog} preview />;
 }

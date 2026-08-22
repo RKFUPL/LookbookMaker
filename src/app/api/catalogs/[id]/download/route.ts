@@ -3,14 +3,16 @@ import { connectDb } from "@/lib/db";
 import { apiError, ApiError } from "@/lib/http";
 import { Catalog } from "@/models/Catalog";
 import { CatalogEvent } from "@/models/CatalogEvent";
+import { normalizeCatalogSource } from "@/lib/catalog-source";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     await connectDb();
     const slug = (await params).id.toLowerCase();
     const catalog = await Catalog.findOne({ slug, status: "published", allowDownload: true });
-    const sourceUrl = catalog?.sourcePdfUrl;
-    if (!catalog || !sourceUrl) throw new ApiError(404, "Download is unavailable.");
+    if (!catalog) throw new ApiError(404, "Download is unavailable.");
+    const source = await normalizeCatalogSource(catalog);
+    if (!source.sourcePdfUrl) throw new ApiError(404, "Download is unavailable.");
     await CatalogEvent.create({
       catalogId: catalog._id,
       type: "download",

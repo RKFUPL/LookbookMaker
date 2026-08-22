@@ -44,7 +44,7 @@ function disposeLoadingTask(task: PDFDocumentLoadingTask | null) {
 }
 function userFacingPdfError(error: unknown, fallback = PDF_ERROR) {
   const message = error instanceof Error ? error.message : String(error);
-  if (/\b404\b|not found|source could not be found/i.test(message)) return "Catalog source could not be found.";
+  if (/\b404\b|not found|source could not be found|source pdf url configured/i.test(message)) return "Catalog source could not be found.";
   return /worker/i.test(message) ? WORKER_ERROR : fallback;
 }
 
@@ -95,6 +95,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   const [pageInput, setPageInput] = useState(String(requestedPage()));
   const [retryKey, setRetryKey] = useState(0);
   const [resolvedCatalogId, setResolvedCatalogId] = useState<string | null>(null);
+  const [sourceMissing, setSourceMissing] = useState(false);
 
   const shellRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLElement>(null);
@@ -150,6 +151,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     const controller = new AbortController();
     const slug = catalog.slug.toLowerCase();
     setResolvedCatalogId(null);
+    setSourceMissing(false);
     setPdf(null);
     setPageCount(0);
     setPageSize(null);
@@ -164,11 +166,18 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     setLoadError("");
     setLoading(true);
     if (preview) {
+      if (!catalog.sourcePdfUrl) {
+        setSourceMissing(true);
+        setLoading(false);
+        setLoadError("Lookbook source PDF is not configured.");
+        catalogLog({ slug, resolvedCatalogId: catalog.id, sourcePdfUrlPresent: false, pdfProxyUrl: null });
+        return () => controller.abort();
+      }
       setResolvedCatalogId(catalog.id);
-      catalogLog({ slug, resolvedCatalogId: catalog.id, sourcePdfUrl: catalog.sourcePdfUrl || "", pdfProxyUrl: `/api/catalogs/${catalog.id}/pdf` });
+      catalogLog({ slug, resolvedCatalogId: catalog.id, sourcePdfUrlPresent: true, pdfProxyUrl: `/api/catalogs/${catalog.id}/pdf` });
       return () => controller.abort();
     }
-    catalogLog({ slug, resolvedCatalogId: null, sourcePdfUrl: "", pdfProxyUrl: null });
+    catalogLog({ slug, resolvedCatalogId: null, sourcePdfUrlPresent: false, pdfProxyUrl: null });
     void (async () => {
       try {
         const response = await fetch(`/api/catalogs/${encodeURIComponent(slug)}/public`, {
@@ -180,18 +189,25 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         if (!response.ok || !payload.catalog?.id) throw new Error(payload.error || "Catalog source could not be found.");
         const current = payload.catalog;
         if (current.slug !== slug) throw new Error("Catalog source could not be found.");
+        if (!current.sourcePdfUrl) {
+          setSourceMissing(true);
+          setLoading(false);
+          setLoadError("Lookbook source PDF is not configured.");
+          catalogLog({ slug, resolvedCatalogId: current.id, sourcePdfUrlPresent: false, pdfProxyUrl: null });
+          return;
+        }
         setResolvedCatalogId(current.id);
         catalogLog({
           slug,
           resolvedCatalogId: current.id,
-          sourcePdfUrl: current.sourcePdfUrl || "",
+          sourcePdfUrlPresent: true,
           pdfProxyUrl: `/api/catalogs/${current.id}/pdf`,
         });
       } catch (error) {
         if (controller.signal.aborted) return;
         setLoading(false);
         setLoadError(error instanceof Error ? error.message : "Catalog source could not be found.");
-        catalogLog({ slug, resolvedCatalogId: null, sourcePdfUrl: "", pdfProxyUrl: null, error: error instanceof Error ? error.message : String(error) });
+        catalogLog({ slug, resolvedCatalogId: null, sourcePdfUrlPresent: false, pdfProxyUrl: null, error: error instanceof Error ? error.message : String(error) });
       }
     })();
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -349,7 +365,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   useEffect(() => { hydrateRef.current = hydrateWindow; }, [hydrateWindow]);
 
   useEffect(() => {
-    if (!resolvedCatalogId) return;
+    if (!resolvedCatalogId || sourceMissing) return;
     const catalogId = resolvedCatalogId;
     const pdfProxyUrl = `/api/catalogs/${catalogId}/pdf`;
     const loadKey = `${catalogId}:${retryKey}`;
@@ -443,7 +459,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         dimensions.clear();
       }, 0);
     };
-  }, [clearCache, resolvedCatalogId, retryKey]);
+  }, [clearCache, resolvedCatalogId, retryKey, sourceMissing]);
 
   useEffect(() => {
     if (!pdf) return;
@@ -900,7 +916,8 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   function submitPage(event: FormEvent) { event.preventDefault(); goToPage(Number(pageInput) || 1, false); }
 
   if (loadError) {
-    return <div className="rk-reader-loading"><Brand /><div className="rk-reader-load-copy"><p>{loadError}</p>{loadDiagnostic && process.env.NODE_ENV !== "production" && <small>{loadDiagnostic}</small>}<button type="button" onClick={() => setRetryKey((value) => value + 1)}><RefreshCw size={15} /> Try again</button></div></div>;
+    const configureUrl = preview ? `/admin/catalogs/${encodeURIComponent(catalog.id)}/edit` : "/admin";
+    return <div className="rk-reader-loading"><Brand /><div className="rk-reader-load-copy"><p>{loadError}</p>{loadDiagnostic && process.env.NODE_ENV !== "production" && <small>{loadDiagnostic}</small>}{sourceMissing ? <a className="btn btn-secondary" href={configureUrl}>Configure PDF</a> : <button type="button" onClick={() => setRetryKey((value) => value + 1)}><RefreshCw size={15} /> Try again</button>}</div></div>;
   }
   if (loading || !pdf || !total || !coverReady) {
     const stageLabel = pdfStage === "loading-document" ? "Loading PDF metadata…" : pdfStage === "loading-page" ? "Loading page 1…" : pdfStage === "rendering-page" ? "Rendering page 1…" : "Preparing reader…";

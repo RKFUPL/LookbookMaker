@@ -9,7 +9,8 @@
     "start:render": "node --import tsx scripts/render-start.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "seed:admin": "node --env-file-if-exists=.env --import tsx scripts/seed-admin.ts"
+    "seed:admin": "node --env-file-if-exists=.env --import tsx scripts/seed-admin.ts",
+    "migrate:sources": "node --env-file-if-exists=.env --import tsx scripts/migrate-catalog-sources.ts"
   },
   "dependencies": {
     "bcryptjs": "latest",
