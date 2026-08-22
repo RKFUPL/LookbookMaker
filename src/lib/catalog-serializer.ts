@@ -66,6 +66,7 @@ export async function serializePublicCatalog(catalog: CatalogLike): Promise<Publ
     pageCount: catalog.pageCount || 0,
     width: catalog.width || 0,
     height: catalog.height || 0,
+    sourcePdfUrl: sourceUrl(catalog),
     publicUrl: `${appUrl()}/catalog/${catalog.slug}`,
     downloadUrl: catalog.allowDownload ? `${appUrl()}/api/catalogs/${catalog.slug}/download` : null,
     settings: { allowDownload: catalog.allowDownload, showBackButton: catalog.showBackButton },

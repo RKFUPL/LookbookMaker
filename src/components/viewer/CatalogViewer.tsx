@@ -33,6 +33,9 @@ function pdfLog(event: string, details?: Record<string, unknown>, error?: unknow
 function viewerLog(event: string, details?: Record<string, unknown>) {
   if (process.env.NODE_ENV !== "production") console.info("[RK VIEWER]", { event, ...(details || {}) });
 }
+function catalogLog(details: Record<string, unknown>) {
+  if (process.env.NODE_ENV !== "production") console.info("[RK CATALOG]", details);
+}
 function disposePdfDocument(document: PDFDocumentProxy | null) {
   if (document) void document.cleanup().catch((error) => pdfLog("PDF LOAD ERROR", { phase: "cleanup" }, error));
 }
@@ -41,6 +44,7 @@ function disposeLoadingTask(task: PDFDocumentLoadingTask | null) {
 }
 function userFacingPdfError(error: unknown, fallback = PDF_ERROR) {
   const message = error instanceof Error ? error.message : String(error);
+  if (/\b404\b|not found|source could not be found/i.test(message)) return "Catalog source could not be found.";
   return /worker/i.test(message) ? WORKER_ERROR : fallback;
 }
 
@@ -90,6 +94,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   const [notice, setNotice] = useState("");
   const [pageInput, setPageInput] = useState(String(requestedPage()));
   const [retryKey, setRetryKey] = useState(0);
+  const [resolvedCatalogId, setResolvedCatalogId] = useState<string | null>(null);
 
   const shellRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLElement>(null);
@@ -120,6 +125,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   const analyticsSent = useRef(new Set<string>());
 
   const total = Math.max(0, pageCount);
+  const catalogIdentity = resolvedCatalogId || catalog.slug;
   const visiblePages = useMemo(() => {
     if (!total) return [];
     const first = currentIndex === 0 ? 1 : orientation === "landscape" ? currentIndex : currentIndex + 1;
@@ -138,6 +144,59 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     bitmapCache.current.clear();
     renderPromises.current.clear();
   }, []);
+
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    const controller = new AbortController();
+    const slug = catalog.slug.toLowerCase();
+    setResolvedCatalogId(null);
+    setPdf(null);
+    setPageCount(0);
+    setPageSize(null);
+    setCoverReady(false);
+    setLayoutReady(false);
+    setViewerState("loading");
+    setFlipbookReady(false);
+    setBookState("cover");
+    clearCache();
+    pagePromises.current.clear();
+    pageDimensions.current.clear();
+    setLoadError("");
+    setLoading(true);
+    if (preview) {
+      setResolvedCatalogId(catalog.id);
+      catalogLog({ slug, resolvedCatalogId: catalog.id, sourcePdfUrl: catalog.sourcePdfUrl || "", pdfProxyUrl: `/api/catalogs/${catalog.id}/pdf` });
+      return () => controller.abort();
+    }
+    catalogLog({ slug, resolvedCatalogId: null, sourcePdfUrl: "", pdfProxyUrl: null });
+    void (async () => {
+      try {
+        const response = await fetch(`/api/catalogs/${encodeURIComponent(slug)}/public`, {
+          cache: "no-store",
+          headers: { Accept: "application/json", "Cache-Control": "no-cache" },
+          signal: controller.signal,
+        });
+        const payload = await response.json() as { catalog?: PublicCatalogDto; error?: string };
+        if (!response.ok || !payload.catalog?.id) throw new Error(payload.error || "Catalog source could not be found.");
+        const current = payload.catalog;
+        if (current.slug !== slug) throw new Error("Catalog source could not be found.");
+        setResolvedCatalogId(current.id);
+        catalogLog({
+          slug,
+          resolvedCatalogId: current.id,
+          sourcePdfUrl: current.sourcePdfUrl || "",
+          pdfProxyUrl: `/api/catalogs/${current.id}/pdf`,
+        });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setLoading(false);
+        setLoadError(error instanceof Error ? error.message : "Catalog source could not be found.");
+        catalogLog({ slug, resolvedCatalogId: null, sourcePdfUrl: "", pdfProxyUrl: null, error: error instanceof Error ? error.message : String(error) });
+      }
+    })();
+    /* eslint-enable react-hooks/set-state-in-effect */
+    return () => controller.abort();
+  }, [catalog.id, catalog.slug, catalog.sourcePdfUrl, clearCache, preview]);
 
   const getPage = useCallback(async (pageNumber: number) => {
     if (!pdf) throw new Error("PDF is not ready.");
@@ -290,7 +349,10 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   useEffect(() => { hydrateRef.current = hydrateWindow; }, [hydrateWindow]);
 
   useEffect(() => {
-    const loadKey = `${catalog.id}:${retryKey}`;
+    if (!resolvedCatalogId) return;
+    const catalogId = resolvedCatalogId;
+    const pdfProxyUrl = `/api/catalogs/${catalogId}/pdf`;
+    const loadKey = `${catalogId}:${retryKey}`;
     const lifecycle = loadLifecycleRef.current + 1;
     loadLifecycleRef.current = lifecycle;
     let cancelled = false;
@@ -325,15 +387,15 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     void (async () => {
       try {
         if (!entry || entry.key !== loadKey) {
-          pdfLog("PDF LOAD START", { catalogId: catalog.id, url: `/api/catalogs/${catalog.id}/pdf` });
-          pdfLog("START DOCUMENT LOAD", { catalogId: catalog.id, url: `/api/catalogs/${catalog.id}/pdf` });
+          pdfLog("PDF LOAD START", { catalogId, url: pdfProxyUrl });
+          pdfLog("START DOCUMENT LOAD", { catalogId, url: pdfProxyUrl });
           const nextEntry = { key: loadKey, task: null, cancelled: false } as PdfLoadEntry;
           nextEntry.promise = (async () => {
             const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist");
             const workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
             GlobalWorkerOptions.workerSrc = workerSrc;
             pdfLog("PDF WORKER READY", { workerSrc });
-            const task = getDocument({ url: `/api/catalogs/${catalog.id}/pdf`, rangeChunkSize: 65536, disableAutoFetch: false, disableStream: false, withCredentials: false });
+            const task = getDocument({ url: pdfProxyUrl, rangeChunkSize: 65536, disableAutoFetch: false, disableStream: false, withCredentials: false });
             nextEntry.task = task;
             if (nextEntry.cancelled) {
               await task.destroy();
@@ -351,9 +413,9 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         setPageCount(document.numPages);
         setLoading(false);
         setPdfStage("document-ready");
-        pdfLog("DOCUMENT LOADED", { catalogId: catalog.id });
-        pdfLog("PAGE COUNT", { catalogId: catalog.id, numPages: document.numPages });
-        pdfLog("PDF LOAD SUCCESS", { catalogId: catalog.id, numPages: document.numPages });
+        pdfLog("DOCUMENT LOADED", { catalogId });
+        pdfLog("PAGE COUNT", { catalogId, numPages: document.numPages });
+        pdfLog("PDF LOAD SUCCESS", { catalogId, numPages: document.numPages });
       } catch (error) {
         if (cancelled || loadLifecycleRef.current !== lifecycle) return;
         setLoading(false);
@@ -361,7 +423,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         setPdfStage("error");
         setLoadError(userFacingPdfError(error));
         if (process.env.NODE_ENV !== "production") setLoadDiagnostic(error instanceof Error ? error.message : String(error));
-        pdfLog("PDF LOAD ERROR", { catalogId: catalog.id }, error);
+        pdfLog("PDF LOAD ERROR", { catalogId, url: pdfProxyUrl }, error);
       }
     })();
     return () => {
@@ -381,7 +443,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         dimensions.clear();
       }, 0);
     };
-  }, [catalog.id, clearCache, retryKey]);
+  }, [clearCache, resolvedCatalogId, retryKey]);
 
   useEffect(() => {
     if (!pdf) return;
@@ -765,19 +827,19 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   }, [bookState, coverReady, layoutReady, viewerState]);
 
   useEffect(() => {
-    if (preview || !total) return;
+    if (preview || !total || !resolvedCatalogId) return;
     const page = visiblePages[0] || 1;
-    const key = `${catalog.id}:${page}`;
+    const key = `${resolvedCatalogId}:${page}`;
     const timer = window.setTimeout(() => {
       if (analyticsSent.current.has(key)) return;
       analyticsSent.current.add(key);
-      const storageKey = `rk-viewed-${catalog.id}`;
+      const storageKey = `rk-viewed-${resolvedCatalogId}`;
       const type = sessionStorage.getItem(storageKey) ? "page_view" : "view";
       sessionStorage.setItem(storageKey, "1");
-      dispatchAnalytics(`/api/catalogs/${catalog.id}/view`, { type, page });
+      dispatchAnalytics(`/api/catalogs/${resolvedCatalogId}/view`, { type, page });
     }, 150);
     return () => window.clearTimeout(timer);
-  }, [catalog.id, currentIndex, preview, total, visiblePages]);
+  }, [currentIndex, preview, resolvedCatalogId, total, visiblePages]);
 
   function changeZoom(value: number) {
     const next = clamp(value, 1, MAX_ZOOM);
@@ -832,7 +894,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     try {
       if (navigator.share) await navigator.share({ title: catalog.title, text: catalog.description, url });
       else { await navigator.clipboard.writeText(url); setNotice("Link copied"); window.setTimeout(() => setNotice(""), 1800); }
-      if (!preview) dispatchAnalytics(`/api/catalogs/${catalog.id}/view`, { type: "share" });
+      if (!preview) dispatchAnalytics(`/api/catalogs/${catalogIdentity}/view`, { type: "share" });
     } catch { /* User cancelled sharing. */ }
   }
   function submitPage(event: FormEvent) { event.preventDefault(); goToPage(Number(pageInput) || 1, false); }

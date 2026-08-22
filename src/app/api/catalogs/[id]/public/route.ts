@@ -11,9 +11,15 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const catalog = await Catalog.findOne({ slug, status: "published" });
     if (!catalog) throw new ApiError(404, "This catalog is unavailable.", "NOT_FOUND");
     const payload = await serializePublicCatalog(catalog);
+    console.info("[RK CATALOG]", {
+      slug: payload.slug,
+      resolvedCatalogId: payload.id,
+      sourcePdfUrl: payload.sourcePdfUrl,
+      pdfProxyUrl: `/api/catalogs/${payload.id}/pdf`,
+    });
     return NextResponse.json(
       { catalog: payload },
-      { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } },
+      { headers: { "Cache-Control": "no-store, max-age=0" } },
     );
   } catch (error) { return apiError(error); }
 }

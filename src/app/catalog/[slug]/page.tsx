@@ -12,7 +12,14 @@ async function getCatalog(slug: string) {
   await connectDb();
   const catalog = await Catalog.findOne({ slug: slug.toLowerCase(), status: "published" });
   if (!catalog) return null;
-  return serializePublicCatalog(catalog);
+  const payload = await serializePublicCatalog(catalog);
+  console.info("[RK CATALOG]", {
+    slug: payload.slug,
+    resolvedCatalogId: payload.id,
+    sourcePdfUrl: catalog.sourcePdfUrl || "",
+    pdfProxyUrl: `/api/catalogs/${payload.id}/pdf`,
+  });
+  return payload;
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
@@ -39,5 +46,5 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 export default async function PublicCatalogPage({ params }: { params: Promise<{ slug: string }> }) {
   const catalog = await getCatalog((await params).slug);
   if (!catalog) notFound();
-  return <CatalogViewer catalog={catalog} />;
+  return <CatalogViewer key={catalog.slug} catalog={catalog} />;
 }

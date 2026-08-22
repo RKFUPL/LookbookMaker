@@ -11,6 +11,7 @@ export type PublicCatalogDto = {
   pageCount: number;
   width: number;
   height: number;
+  sourcePdfUrl: string;
   publicUrl: string;
   downloadUrl: string | null;
   settings: {
