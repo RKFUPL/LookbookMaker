@@ -13,7 +13,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
   if (!isValidObjectId(id)) notFound();
   await connectDb();
   const document = await Catalog.findById(id);
-  if (!document || !document.pages.length) notFound();
-  const catalog = await serializePublicCatalog(document, true);
+  if (!document || !document.sourcePdfUrl) notFound();
+  const catalog = await serializePublicCatalog(document);
   return <CatalogViewer catalog={catalog} preview />;
 }

@@ -15,7 +15,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     const catalog = await Catalog.findById(id);
     if (!catalog) throw new ApiError(404, "Catalog not found.");
     if (catalog.status !== "published") throw new ApiError(409, "This catalog is not published.");
-    catalog.status = "ready";
+    catalog.status = "imported";
     catalog.updatedBy = staff.userId;
     await catalog.save();
     return NextResponse.json({ catalog: await serializeCatalog(catalog) });

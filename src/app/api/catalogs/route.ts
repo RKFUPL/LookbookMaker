@@ -6,7 +6,6 @@ import { catalogCreateSchema } from "@/lib/validation";
 import { uniqueSlug } from "@/lib/slug";
 import { serializeCatalog } from "@/lib/catalog-serializer";
 import { Catalog } from "@/models/Catalog";
-import { ProcessingJob } from "@/models/ProcessingJob";
 import { assertSafeRemoteUrl } from "@/lib/remote-source";
 
 export async function GET(request: Request) {
@@ -19,10 +18,8 @@ export async function GET(request: Request) {
     const page = Math.max(1, Number(searchParams.get("page") || 1));
     const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit") || 20)));
     const filter: Record<string, unknown> = {};
-    if (status && ["draft", "downloading", "processing", "ready", "published", "failed", "archived"].includes(status)) {
-      filter.status = status === "failed"
-        ? { $in: ["failed", "error", "processing_failed", "storage_failed"] }
-        : status === "downloading" ? { $in: ["downloading", "uploading"] } : status;
+    if (status && ["draft", "imported", "published", "failed", "archived"].includes(status)) {
+      filter.status = status;
     }
     if (query) filter.$text = { $search: query.slice(0, 100) };
 
@@ -32,13 +29,7 @@ export async function GET(request: Request) {
       Catalog.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
     ]);
     const normalizedCounts = Object.fromEntries(counts.map((item) => [item._id, item.count])) as Record<string, number>;
-    normalizedCounts.downloading = (normalizedCounts.downloading || 0) + (normalizedCounts.uploading || 0);
-    normalizedCounts.failed = (normalizedCounts.failed || 0) + (normalizedCounts.error || 0)
-      + (normalizedCounts.processing_failed || 0) + (normalizedCounts.storage_failed || 0);
-    delete normalizedCounts.uploading;
-    delete normalizedCounts.error;
-    delete normalizedCounts.processing_failed;
-    delete normalizedCounts.storage_failed;
+    normalizedCounts.failed = normalizedCounts.failed || 0;
     return NextResponse.json({
       catalogs: await Promise.all(catalogs.map((catalog) => serializeCatalog(catalog))),
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
@@ -67,18 +58,12 @@ export async function POST(request: Request) {
       sourcePdfUrl: pdfUrl,
       sourceType: "external_url",
       slug,
-      status: "downloading",
-      processingProgress: 1,
-      processingMessage: "Downloading PDF...",
+      status: "imported",
+      processingProgress: 100,
+      processingMessage: "External PDF mode — pages load in the browser.",
       createdBy: staff.userId,
       updatedBy: staff.userId,
     });
-    try {
-      await ProcessingJob.create({ catalogId: catalog._id, status: "queued", availableAt: new Date() });
-    } catch (error) {
-      await Catalog.deleteOne({ _id: catalog._id }).catch(() => undefined);
-      throw error;
-    }
     return NextResponse.json({ catalog: await serializeCatalog(catalog) }, { status: 201 });
   } catch (error) {
     return apiError(error);

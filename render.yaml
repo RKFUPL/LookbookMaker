@@ -6,13 +6,9 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     dockerCommand: npm run start:render
-    plan: starter
+    plan: free
     numInstances: 1
     healthCheckPath: /api/health/storage
-    disk:
-      name: rk-catalog-assets
-      mountPath: /var/data/objects
-      sizeGB: 10
     envVars:
       - key: APP_URL
         value: https://lookbookmaker.onrender.com
@@ -26,18 +22,6 @@ services:
         sync: false
       - key: SESSION_TTL_HOURS
         value: "12"
-      - key: LOCAL_STORAGE_ROOT
-        value: /var/data/objects
-      - key: MAX_PDF_SIZE_MB
-        value: "250"
-      - key: PDFINFO_BIN
-        value: pdfinfo
-      - key: PDFTOPPM_BIN
-        value: pdftoppm
-      - key: WORKER_POLL_MS
-        value: "2500"
-      - key: WORKER_MAX_ATTEMPTS
-        value: "3"
       - key: BOOTSTRAP_ADMIN_EMAIL
         value: staff@rashikapoorofficial.com
       - key: BOOTSTRAP_ADMIN_PASSWORD

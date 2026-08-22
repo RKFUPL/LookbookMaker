@@ -8,19 +8,18 @@ import { CatalogViewer } from "@/components/viewer/CatalogViewer";
 
 export const dynamic = "force-dynamic";
 
-async function getCatalog(slug: string, assets = true) {
+async function getCatalog(slug: string) {
   await connectDb();
   const catalog = await Catalog.findOne({ slug: slug.toLowerCase(), status: "published" });
   if (!catalog) return null;
-  return serializePublicCatalog(catalog, assets);
+  return serializePublicCatalog(catalog);
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const slug = (await params).slug;
-  const catalog = await getCatalog(slug, false);
+  const catalog = await getCatalog(slug);
   if (!catalog) return { title: "Catalog unavailable", robots: { index: false, follow: false } };
   const description = catalog.description || `Explore ${catalog.title} by Rashika Kapoor.`;
-  const coverImage = catalog.coverImageUrl ? new URL(catalog.coverImageUrl, appUrl()).toString() : null;
   return {
     title: catalog.title,
     description,
@@ -31,16 +30,14 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
       siteName: "Rashika Kapoor",
       title: catalog.title,
       description,
-      images: coverImage ? [{ url: coverImage, alt: catalog.title }] : [],
+      images: [],
     },
-    twitter: { card: "summary_large_image", title: catalog.title, description, images: coverImage ? [coverImage] : [] },
+    twitter: { card: "summary", title: catalog.title, description },
   };
 }
 
 export default async function PublicCatalogPage({ params }: { params: Promise<{ slug: string }> }) {
-  // Send the lightweight reader shell first. Page asset URLs are loaded from the
-  // public API by the client so the RK loading state can paint immediately.
-  const catalog = await getCatalog((await params).slug, false);
+  const catalog = await getCatalog((await params).slug);
   if (!catalog) notFound();
   return <CatalogViewer catalog={catalog} />;
 }

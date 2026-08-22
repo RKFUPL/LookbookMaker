@@ -11,5 +11,5 @@ export const catalogCreateSchema = z.object({
 });
 
 export const catalogUpdateSchema = catalogCreateSchema.partial().extend({
-  status: z.enum(["draft", "ready", "archived"]).optional(),
+  status: z.enum(["draft", "imported", "archived"]).optional(),
 });

@@ -3,34 +3,27 @@ import { NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth";
 import { connectDb } from "@/lib/db";
 import { apiError, ApiError } from "@/lib/http";
+import { serializeCatalog } from "@/lib/catalog-serializer";
 import { Catalog } from "@/models/Catalog";
-import { ProcessingJob } from "@/models/ProcessingJob";
 
+// Kept as a compatibility endpoint for older admin links. External PDF mode
+// intentionally performs no server-side rendering or permanent file writes.
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireStaff();
+    const staff = await requireStaff();
     await connectDb();
     const id = (await params).id;
     if (!isValidObjectId(id)) throw new ApiError(404, "Catalog not found.");
     const catalog = await Catalog.findById(id);
-    if (!catalog?.sourceKey && !catalog?.sourceUrl && !catalog?.sourcePdfUrl) {
-      throw new ApiError(409, "Add a source PDF URL before processing.");
-    }
-    if (["downloading", "processing"].includes(catalog.status)) {
-      throw new ApiError(409, "Catalog is already processing.");
-    }
-
-    await ProcessingJob.deleteMany({ catalogId: catalog._id, status: { $in: ["queued", "failed"] } });
-    await ProcessingJob.create({ catalogId: catalog._id, status: "queued", availableAt: new Date() });
-    catalog.status = "downloading";
-    catalog.processingProgress = 1;
-    catalog.processingMessage = "Downloading PDF...";
-    catalog.processingError = "";
+    if (!catalog) throw new ApiError(404, "Catalog not found.");
+    if (!catalog.sourcePdfUrl) throw new ApiError(409, "A hosted PDF URL is required.");
+    catalog.status = catalog.status === "published" ? "published" : "imported";
+    catalog.processingProgress = 100;
+    catalog.processingMessage = "External PDF mode — pages load in the browser.";
     catalog.failureCode = undefined;
     catalog.failureDetail = "";
+    catalog.updatedBy = staff.userId;
     await catalog.save();
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    return apiError(error);
-  }
+    return NextResponse.json({ catalog: await serializeCatalog(catalog) });
+  } catch (error) { return apiError(error); }
 }

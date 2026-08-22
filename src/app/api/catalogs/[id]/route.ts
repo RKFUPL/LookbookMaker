@@ -6,10 +6,8 @@ import { apiError, ApiError, readJson } from "@/lib/http";
 import { catalogUpdateSchema } from "@/lib/validation";
 import { uniqueSlug } from "@/lib/slug";
 import { serializeCatalog } from "@/lib/catalog-serializer";
-import { deletePrefix } from "@/lib/storage";
 import { Catalog } from "@/models/Catalog";
 import { CatalogEvent } from "@/models/CatalogEvent";
-import { ProcessingJob } from "@/models/ProcessingJob";
 import { assertSafeRemoteUrl } from "@/lib/remote-source";
 
 type Context = { params: Promise<{ id: string }> };
@@ -26,7 +24,7 @@ export async function GET(_: Request, context: Context) {
     await requireStaff();
     await connectDb();
     const catalog = await findCatalog((await context.params).id);
-    return NextResponse.json({ catalog: await serializeCatalog(catalog, true) });
+    return NextResponse.json({ catalog: await serializeCatalog(catalog) });
   } catch (error) { return apiError(error); }
 }
 
@@ -37,9 +35,8 @@ export async function PUT(request: Request, context: Context) {
     await connectDb();
     const catalog = await findCatalog((await context.params).id);
     if (input.title && input.title !== catalog.title) catalog.slug = await uniqueSlug(input.title, String(catalog._id));
-    const sourceChanged = input.pdfUrl !== undefined && input.pdfUrl !== (catalog.sourcePdfUrl || catalog.sourceUrl || "");
+    const sourceChanged = input.pdfUrl !== undefined && input.pdfUrl !== (catalog.sourcePdfUrl || "");
     if (sourceChanged) {
-      if (["downloading", "processing"].includes(catalog.status)) throw new ApiError(409, "Wait for current processing to finish before changing the PDF source.");
       if (!input.pdfUrl) throw new ApiError(400, "A PDF source URL is required.");
       try {
         await assertSafeRemoteUrl(input.pdfUrl);
@@ -50,26 +47,21 @@ export async function PUT(request: Request, context: Context) {
     const { collection, pdfUrl, status, ...details } = input;
     Object.assign(catalog, details, {
       ...(collection ? { collectionName: collection } : {}),
-      ...(pdfUrl !== undefined ? { sourceUrl: undefined, sourcePdfUrl: pdfUrl, sourceType: "external_url" } : {}),
+      ...(pdfUrl !== undefined ? { sourcePdfUrl: pdfUrl, sourceType: "external_url" } : {}),
       ...(status ? { status } : {}),
       updatedBy: staff.userId,
     });
     if (sourceChanged) {
-      catalog.sourceUrl = undefined;
       catalog.sourcePdfUrl = pdfUrl;
       catalog.sourceType = "external_url";
-      catalog.status = "downloading";
-      catalog.processingProgress = 1;
-      catalog.processingMessage = "Downloading PDF...";
+      catalog.status = "imported";
+      catalog.processingProgress = 100;
+      catalog.processingMessage = "External PDF mode — pages load in the browser.";
       catalog.processingError = "";
       catalog.failureCode = undefined;
       catalog.failureDetail = "";
     }
     await catalog.save();
-    if (sourceChanged) {
-      await ProcessingJob.deleteMany({ catalogId: catalog._id, status: { $in: ["queued", "failed"] } });
-      await ProcessingJob.create({ catalogId: catalog._id, status: "queued", availableAt: new Date() });
-    }
     return NextResponse.json({ catalog: await serializeCatalog(catalog) });
   } catch (error) { return apiError(error); }
 }
@@ -79,14 +71,10 @@ export async function DELETE(_: Request, context: Context) {
     await requireStaff();
     await connectDb();
     const catalog = await findCatalog((await context.params).id);
-    const id = String(catalog._id);
-    if (["downloading", "processing"].includes(catalog.status)) throw new ApiError(409, "Wait for processing to finish before deleting this catalog.");
     await Promise.all([
       Catalog.deleteOne({ _id: catalog._id }),
-      ProcessingJob.deleteMany({ catalogId: catalog._id }),
       CatalogEvent.deleteMany({ catalogId: catalog._id }),
     ]);
-    await deletePrefix(`catalogs/${id}/`).catch((error) => console.error(`Unable to remove storage prefix for deleted catalog ${id}:`, error));
     return NextResponse.json({ ok: true });
   } catch (error) { return apiError(error); }
 }

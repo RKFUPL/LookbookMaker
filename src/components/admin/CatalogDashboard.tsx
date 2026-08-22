@@ -10,9 +10,7 @@ type Counts = Record<string, number>;
 const tabs = [
   { value: "", label: "All catalogs" },
   { value: "draft", label: "Drafts" },
-  { value: "downloading", label: "Downloading" },
-  { value: "processing", label: "Processing" },
-  { value: "ready", label: "Ready" },
+  { value: "imported", label: "Imported" },
   { value: "published", label: "Published" },
   { value: "failed", label: "Failed" },
   { value: "archived", label: "Archived" },
@@ -63,7 +61,7 @@ export function CatalogDashboard({ initialStatus }: { initialStatus: string }) {
       <section className="stats-row" aria-label="Catalog summary">
         <div className="stat"><div className="stat-label">Total catalogues</div><div className="stat-value">{total}</div></div>
         <div className="stat"><div className="stat-label">Published</div><div className="stat-value">{counts.published || 0}</div></div>
-        <div className="stat"><div className="stat-label">Ready to publish</div><div className="stat-value">{counts.ready || 0}</div></div>
+        <div className="stat"><div className="stat-label">Imported</div><div className="stat-value">{counts.imported || 0}</div></div>
         <div className="stat"><div className="stat-label">Total views</div><div className="stat-value">{catalogs.reduce((sum, item) => sum + item.views, 0).toLocaleString()}</div></div>
       </section>
 

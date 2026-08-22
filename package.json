@@ -9,7 +9,6 @@
     "start:render": "node --import tsx scripts/render-start.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "worker": "node --env-file-if-exists=.env --import tsx scripts/catalog-worker.ts",
     "seed:admin": "node --env-file-if-exists=.env --import tsx scripts/seed-admin.ts"
   },
   "dependencies": {
@@ -19,6 +18,7 @@
     "mongoose": "latest",
     "next": "latest",
     "page-flip": "^2.0.7",
+    "pdfjs-dist": "^6.2.108",
     "react": "latest",
     "react-dom": "latest",
     "sharp": "latest",

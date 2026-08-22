@@ -20,9 +20,6 @@ services:
       APP_URL: http://localhost:3000
       PORT: "10000"
       MONGODB_URI: mongodb://mongo:27017/rk_catalogs
-      LOCAL_STORAGE_ROOT: /var/data/objects
-    volumes:
-      - rk-objects:/var/data/objects
     depends_on:
       mongo:
         condition: service_healthy
@@ -34,11 +31,9 @@ services:
     env_file: .env
     environment:
       MONGODB_URI: mongodb://mongo:27017/rk_catalogs
-      LOCAL_STORAGE_ROOT: /var/data/objects
     depends_on:
       mongo:
         condition: service_healthy
 
 volumes:
   rk-mongo:
-  rk-objects:

@@ -1,41 +1,5 @@
 import { Schema, model, models, type InferSchemaType } from "mongoose";
 
-const productLinkSchema = new Schema(
-  {
-    sku: { type: String, required: true },
-    label: { type: String, default: "View product" },
-    href: { type: String, required: true },
-    x: Number,
-    y: Number,
-    width: Number,
-    height: Number,
-  },
-  { _id: false },
-);
-
-const pendingProductLinksSchema = new Schema(
-  {
-    page: { type: Number, required: true },
-    productLinks: { type: [productLinkSchema], default: [] },
-  },
-  { _id: false },
-);
-
-const pageSchema = new Schema(
-  {
-    page: { type: Number, required: true },
-    width: { type: Number, required: true },
-    height: { type: Number, required: true },
-    // imageKey remains for catalogs processed by the original pipeline.
-    imageKey: String,
-    thumbnailKey: { type: String, required: true },
-    mediumKey: String,
-    largeKey: String,
-    productLinks: { type: [productLinkSchema], default: [] },
-  },
-  { _id: false },
-);
-
 const catalogSchema = new Schema(
   {
     title: { type: String, required: true, trim: true, maxlength: 160, index: true },
@@ -45,40 +9,21 @@ const catalogSchema = new Schema(
     description: { type: String, default: "", maxlength: 2000 },
     status: {
       type: String,
-      // Legacy values remain readable so existing records can be edited and
-      // reprocessed; all current workflows write the normalized states first.
-      enum: ["draft", "downloading", "processing", "ready", "published", "failed", "archived", "uploading", "error", "processing_failed", "storage_failed"],
+      enum: ["draft", "imported", "published", "failed", "archived"],
       default: "draft",
       index: true,
     },
-    sourceKey: String,
-    sourceUrl: String,
-    sourcePdfUrl: String,
-    sourceType: { type: String, enum: ["external_url", "uploaded"] },
+    sourcePdfUrl: { type: String, required: true },
+    sourceType: { type: String, enum: ["external_url"], default: "external_url" },
     sourceSize: Number,
-    sourceEtag: String,
-    sourceContentType: String,
     originalFilename: String,
-    pendingSourceKey: { type: String, select: false },
-    pendingSourceSize: { type: Number, select: false },
-    pendingSourceContentType: { type: String, select: false },
-    pendingSourceFilename: { type: String, select: false },
-    coverImageKey: String,
-    coverContentType: String,
-    pendingCoverKey: { type: String, select: false },
-    pendingCoverSize: { type: Number, select: false },
-    pendingCoverContentType: { type: String, select: false },
     pageCount: { type: Number, default: 0 },
     width: { type: Number, default: 0 },
     height: { type: Number, default: 0 },
-    assetVersion: String,
-    assetBasePrefix: String,
-    pages: { type: [pageSchema], default: [] },
-    pendingProductLinks: { type: [pendingProductLinksSchema], default: [], select: false },
     processingProgress: { type: Number, default: 0 },
     processingMessage: { type: String, default: "" },
     processingError: { type: String, default: "" },
-    failureCode: { type: String, enum: ["download_failed", "processing_failed", "storage_missing"] },
+    failureCode: { type: String, enum: ["source_missing", "invalid_source"] },
     failureDetail: { type: String, default: "", maxlength: 2000 },
     allowDownload: { type: Boolean, default: true },
     showBackButton: { type: Boolean, default: false },

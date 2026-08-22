@@ -257,8 +257,8 @@ a { color: inherit; text-decoration: none; }
 .rk-flip-page { overflow: hidden; background: #eeeae1; color: #211e1a; }
 .rk-page-media { position: absolute; inset: 0; overflow: hidden; background: #eeeae1; }
 .rk-page-media.is-blank .rk-page-placeholder { display: none; }
-.rk-page-media img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain; opacity: 0; pointer-events: none; transition: opacity .24s ease; }
-.rk-page-media.is-loaded img { opacity: 1; }
+.rk-page-media canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain; opacity: 0; pointer-events: none; transition: opacity .24s ease; }
+.rk-page-media.is-loaded canvas { opacity: 1; }
 .rk-page-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 18px; color: #7e756b; background: linear-gradient(118deg, #e3ded5, #f1ede5 48%, #ddd8cf); transition: opacity .22s; }
 .rk-page-media.is-loaded .rk-page-placeholder { opacity: 0; }
 .rk-page-mark { font: 400 clamp(20px, 2.6vw, 38px) "Bodoni 72", Didot, serif; letter-spacing: .05em; }
@@ -298,7 +298,7 @@ a { color: inherit; text-decoration: none; }
 .rk-thumbnail-grid button { min-width: 0; padding: 0; border: 0; background: transparent; color: #746d64; cursor: pointer; }
 .rk-thumbnail-grid button > span { display: block; overflow: hidden; background: #ddd8cf; border: 2px solid transparent; transition: border-color .2s, transform .2s, box-shadow .2s; }
 .rk-thumbnail-grid button:hover > span, .rk-thumbnail-grid button.is-active > span { transform: translateY(-2px); border-color: #6d2028; box-shadow: 0 8px 20px rgba(40,31,25,.15); }
-.rk-thumbnail-grid img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.rk-thumbnail-grid canvas { width: 100%; height: 100%; display: block; object-fit: contain; background: #eeeae1; }
 .rk-thumbnail-grid em { display: block; margin-top: 7px; font: normal 9px Inter, sans-serif; letter-spacing: .12em; }
 .rk-drawer-scrim { position: absolute; z-index: 40; inset: 0; border: 0; background: rgba(0,0,0,.45); backdrop-filter: blur(2px); }
 .rk-reader-toast { position: absolute; z-index: 50; left: 50%; bottom: 84px; transform: translateX(-50%); padding: 10px 16px; color: #211c18; background: #f4efe7; box-shadow: 0 14px 38px rgba(0,0,0,.25); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }

@@ -1,36 +1,5 @@
-export type CatalogStatus = "draft" | "downloading" | "processing" | "ready" | "published" | "failed" | "archived";
-export type CatalogFailureCode = "download_failed" | "processing_failed" | "storage_missing";
-
-export type ProductLink = {
-  sku: string;
-  label: string;
-  href: string;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-};
-
-export type CatalogPage = {
-  page: number;
-  width: number;
-  height: number;
-  imageUrl: string;
-  thumbnailUrl: string;
-  mediumUrl: string;
-  largeUrl: string;
-  productLinks: ProductLink[];
-};
-
-export type PublicCatalogPage = {
-  page: number;
-  width: number;
-  height: number;
-  thumbnailUrl: string;
-  mediumUrl: string;
-  largeUrl: string;
-  productLinks: ProductLink[];
-};
+export type CatalogStatus = "draft" | "imported" | "published" | "failed" | "archived";
+export type CatalogFailureCode = "source_missing" | "invalid_source";
 
 export type PublicCatalogDto = {
   id: string;
@@ -42,14 +11,13 @@ export type PublicCatalogDto = {
   pageCount: number;
   width: number;
   height: number;
-  coverImageUrl: string | null;
+  sourcePdfUrl: string;
   publicUrl: string;
   downloadUrl: string | null;
   settings: {
     allowDownload: boolean;
     showBackButton: boolean;
   };
-  pages?: PublicCatalogPage[];
 };
 
 export type CatalogDto = {
@@ -68,18 +36,16 @@ export type CatalogDto = {
   processingError: string;
   failureCode: CatalogFailureCode | null;
   failureDetail: string;
-  coverImageUrl: string | null;
+  coverImageUrl: null;
   sourcePdfUrl: string;
-  sourceType?: "external_url" | "uploaded";
-  assetBasePrefix?: string;
+  sourceType: "external_url";
   originalFilename: string;
   sourceSize: number;
   allowDownload: boolean;
   showBackButton: boolean;
   views: number;
   publicUrl: string;
-  pages?: CatalogPage[];
-  downloadUrl?: string | null;
+  downloadUrl: string | null;
   createdAt: string;
   updatedAt: string;
   publishedAt: string | null;
