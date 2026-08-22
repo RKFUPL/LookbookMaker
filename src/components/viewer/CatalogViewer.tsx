@@ -14,6 +14,7 @@ const PAGE_ERROR = "Unable to render page 1.";
 const WORKER_ERROR = "PDF viewer failed to initialize.";
 type PdfStage = "idle" | "loading-document" | "document-ready" | "loading-page" | "rendering-page" | "rendered" | "error";
 type ViewerState = "loading" | "cover-ready" | "reader-ready" | "error";
+type BookState = "cover" | "opening" | "spread" | "closing" | "back-cover";
 
 type BitmapRecord = { canvas: HTMLCanvasElement; lastUsed: number; key: string };
 type PdfPageSize = { width: number; height: number };
@@ -74,6 +75,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   const [pdfStage, setPdfStage] = useState<PdfStage>("idle");
   const [viewerState, setViewerState] = useState<ViewerState>("loading");
   const [flipbookReady, setFlipbookReady] = useState(false);
+  const [bookState, setBookState] = useState<BookState>("cover");
   const [layoutReady, setLayoutReady] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [loadDiagnostic, setLoadDiagnostic] = useState("");
@@ -299,6 +301,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     setLoading(true);
     setViewerState("loading");
     setFlipbookReady(false);
+    setBookState("cover");
     setPdfStage("loading-document");
     setLoadError("");
     setLoadDiagnostic("");
@@ -571,13 +574,24 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
           instance.on<number>("flip", ({ data }) => {
             setCurrentIndex(data);
             const page = Math.min(total, Math.max(1, data + 1));
+            setBookState(page === 1 ? "cover" : page === total ? "back-cover" : "spread");
             setPageInput(String(page));
             updatePageUrl(page, "push");
             navigationPending.current = false;
             hydrateRef.current(data);
           });
           instance.on<PageFlipOrientation>("changeOrientation", ({ data }) => { setOrientation(data); instance?.update(); });
-          instance.on<string>("changeState", ({ data }) => { setFlipState(String(data)); if (data === "read") navigationPending.current = false; });
+          instance.on<string>("changeState", ({ data }) => {
+            const state = String(data);
+            setFlipState(state);
+            const index = instance?.getCurrentPageIndex() || 0;
+            if (state === "flipping" || state === "user_fold" || state === "fold_corner") {
+              setBookState(index === 0 ? "opening" : index >= total - 1 ? "closing" : "spread");
+            } else if (state === "read") {
+              setBookState(index === 0 ? "cover" : index >= total - 1 ? "back-cover" : "spread");
+              navigationPending.current = false;
+            }
+          });
           instance.on<{ mode: PageFlipOrientation }>("init", ({ data }) => {
             setOrientation(data.mode);
             const initial = instance?.getCurrentPageIndex() || start;
@@ -640,8 +654,13 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         setLayoutReady(false);
         return;
       }
-      const availableWidth = Math.max(0, stageWidth - 110);
-      const availableHeight = Math.max(0, stageHeight - 34);
+      const stageStyle = getComputedStyle(stage);
+      const paddingLeft = Number.parseFloat(stageStyle.paddingLeft) || 0;
+      const paddingRight = Number.parseFloat(stageStyle.paddingRight) || 0;
+      const paddingTop = Number.parseFloat(stageStyle.paddingTop) || 0;
+      const paddingBottom = Number.parseFloat(stageStyle.paddingBottom) || 0;
+      const availableWidth = Math.max(0, stageWidth - paddingLeft - paddingRight);
+      const availableHeight = Math.max(0, stageHeight - paddingTop - paddingBottom);
       if (availableWidth <= 0 || availableHeight <= 0) {
         layoutRef.current = null;
         setLayoutReady(false);
@@ -742,8 +761,8 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   useEffect(() => { hydrateRef.current(currentIndex); }, [currentIndex, zoom]);
 
   useEffect(() => {
-    viewerLog("VIEWER STATE", { state: viewerState, coverReady, layoutReady });
-  }, [coverReady, layoutReady, viewerState]);
+    viewerLog("VIEWER STATE", { state: viewerState, bookState, coverReady, layoutReady });
+  }, [bookState, coverReady, layoutReady, viewerState]);
 
   useEffect(() => {
     if (preview || !total) return;
@@ -828,8 +847,9 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
 
   const canPrevious = currentIndex > 0 && flipState === "read";
   const canNext = currentIndex < total - 1 && flipState === "read";
+  const bookPositionClass = bookState === "cover" || bookState === "opening" ? "is-cover-position" : bookState === "back-cover" || bookState === "closing" ? "is-back-cover-position" : "is-spread-position";
   return (
-    <div className={`catalog-viewer rk-reader ${preview ? "preview-viewer" : ""} ${zoom > 1 ? "is-zoomed" : ""}`} ref={shellRef}>
+    <div className={`catalog-viewer rk-reader ${preview ? "preview-viewer" : ""} ${zoom > 1 ? "is-zoomed" : ""}`} data-book-state={bookState} ref={shellRef}>
       <header className="rk-reader-header">
         <div className="rk-reader-brand"><Brand /><span>{catalog.collection}{catalog.season ? ` · ${catalog.season}` : ""}</span></div>
         <div className="rk-reader-title"><span>{catalog.title}</span>{preview && <em>Staff preview</em>}</div>
@@ -843,9 +863,11 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
       </header>
       <main className="rk-reader-stage" ref={stageRef} onPointerDownCapture={pointerDown} onPointerMoveCapture={pointerMove} onPointerUpCapture={pointerUp} onPointerCancelCapture={pointerUp} onDoubleClick={() => changeZoom(zoom > 1 ? 1 : 2)}>
         <div className="rk-reader-meta"><span>{catalog.collection}{catalog.season ? ` · ${catalog.season}` : ""}</span><h1>{catalog.title}</h1>{catalog.description && <p>{catalog.description}</p>}</div>
-        {coverReady && pageSize && (!flipbookReady || currentIndex === 0) && <div className="rk-cover-layer rk-cover-layer-direct" style={{ aspectRatio: `${pageSize.width} / ${pageSize.height}` }} aria-label={`${catalog.title}, cover`}><canvas ref={visibleCoverCanvasRef} /></div>}
         <button className="rk-reader-edge rk-reader-edge-left" type="button" aria-label="Previous page" disabled={!canPrevious} onClick={() => requestFlip("prev")}><ChevronLeft size={25} /></button>
-        <div className="rk-reader-transform" style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}><div className="rk-book-host" ref={hostRef} /></div>
+        <div className="rk-reader-transform" style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}>
+          {coverReady && pageSize && !flipbookReady && <div className="rk-cover-layer rk-cover-layer-direct" style={{ aspectRatio: `${pageSize.width} / ${pageSize.height}` }} aria-label={`${catalog.title}, cover`}><canvas ref={visibleCoverCanvasRef} /></div>}
+          <div className={`rk-book-host is-${orientation} ${bookPositionClass} ${flipbookReady ? "" : "is-engine-loading"}`} ref={hostRef} />
+        </div>
         <button className="rk-reader-edge rk-reader-edge-right" type="button" aria-label="Next page" disabled={!canNext} onClick={() => requestFlip("next")}><ChevronRight size={25} /></button>
         <div className="rk-reader-hint" aria-hidden="true">Drag the page edge to turn</div>
       </main>
