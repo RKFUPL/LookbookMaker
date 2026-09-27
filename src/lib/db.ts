@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { getConfig } from "@/lib/config";
+import { configureMongoDns } from "@/lib/mongodb-dns";
 
 declare global {
   var __rkMongoose: { connection: typeof mongoose | null; promise: Promise<typeof mongoose> | null } | undefined;
@@ -11,6 +12,7 @@ global.__rkMongoose = cache;
 export async function connectDb() {
   if (cache.connection) return cache.connection;
   if (!cache.promise) {
+    configureMongoDns();
     cache.promise = mongoose.connect(getConfig().MONGODB_URI, {
       bufferCommands: false,
       maxPoolSize: 10,

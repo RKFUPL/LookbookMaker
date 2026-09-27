@@ -30,6 +30,13 @@ npm run dev
 
 Set `MONGODB_URI`, `AUTH_SECRET` (at least 32 characters), and `APP_URL`. `APP_URL` is required in production for canonical links and sharing.
 
+On local Windows installations where Node reports `127.0.0.1` as its DNS
+server and Atlas SRV lookup fails, the application automatically uses
+Cloudflare and Google DNS for non-production MongoDB connections. You can
+override that without changing the Atlas URI by setting
+`MONGODB_DNS_SERVERS=1.1.1.1,8.8.8.8` in the process environment. This setting
+is ignored in production.
+
 Create a staff account with `npm run seed:admin`, then open `/admin/catalogs/new`. Use an HTTPS PDF URL that Render can fetch; browser CORS headers on the source host are not required. The import action stores the URL and metadata immediately; it does not start a server worker.
 
 ## Render Free deployment
