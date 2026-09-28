@@ -12,7 +12,7 @@ export type PublicCatalogDto = {
   width: number;
   height: number;
   sourcePdfUrl: string;
-  sourceType: "external_url" | "workdrive";
+  sourceType: "external_url" | "workdrive" | "local";
   publicUrl: string;
   downloadUrl: string | null;
   settings: {
@@ -39,7 +39,9 @@ export type CatalogDto = {
   failureDetail: string;
   coverImageUrl: null;
   sourcePdfUrl: string;
-  sourceType: "external_url" | "workdrive";
+  sourceType: "external_url" | "workdrive" | "local";
+  storageProvider: "local" | "workdrive" | "external_url" | "";
+  storageKeyPresent: boolean;
   workdriveFileId: string;
   workdriveFileName: string;
   workdriveFolderId: string;

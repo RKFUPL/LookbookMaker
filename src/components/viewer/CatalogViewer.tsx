@@ -171,7 +171,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         return () => controller.abort();
       }
       setResolvedCatalogId(catalog.id);
-      setResolvedPdfUrl(catalog.sourceType === "workdrive" ? `/api/catalogs/${catalog.id}/pdf` : catalog.sourcePdfUrl);
+      setResolvedPdfUrl(catalog.sourceType === "external_url" ? catalog.sourcePdfUrl : `/api/catalogs/${catalog.id}/pdf`);
       catalogLog({ slug, resolvedCatalogId: catalog.id, sourcePdfUrlPresent: true, pdfProxyUrl: `/api/catalogs/${catalog.id}/pdf` });
       return () => controller.abort();
     }
@@ -195,7 +195,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
           return;
         }
         setResolvedCatalogId(current.id);
-        setResolvedPdfUrl(current.sourceType === "workdrive" ? `/api/catalogs/${current.id}/pdf` : current.sourcePdfUrl);
+        setResolvedPdfUrl(current.sourceType === "external_url" ? current.sourcePdfUrl : `/api/catalogs/${current.id}/pdf`);
         catalogLog({
           slug,
           resolvedCatalogId: current.id,

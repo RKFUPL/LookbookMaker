@@ -9,6 +9,7 @@ import { serializeCatalog } from "@/lib/catalog-serializer";
 import { Catalog } from "@/models/Catalog";
 import { CatalogEvent } from "@/models/CatalogEvent";
 import { assertSafeRemoteUrl } from "@/lib/remote-source";
+import { removeLocalPdf } from "@/lib/local-pdf-storage";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -71,10 +72,14 @@ export async function DELETE(_: Request, context: Context) {
     await requireStaff();
     await connectDb();
     const catalog = await findCatalog((await context.params).id);
+    const localKey = catalog.sourceType === "local" ? catalog.storageKey : "";
     await Promise.all([
       Catalog.deleteOne({ _id: catalog._id }),
       CatalogEvent.deleteMany({ catalogId: catalog._id }),
     ]);
+    if (localKey) await removeLocalPdf(localKey).catch((error) => {
+      console.warn(`[local-storage] operation=catalog-delete-cleanup status=failed code=${error instanceof ApiError ? error.code : "LOCAL_FILE_DELETE_FAILED"}`);
+    });
     return NextResponse.json({ ok: true });
   } catch (error) { return apiError(error); }
 }

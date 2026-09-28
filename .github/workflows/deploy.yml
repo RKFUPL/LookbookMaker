@@ -27,6 +27,10 @@ jobs:
 
             cd /opt/apps/rashi-kapoor/lookbook-maker
 
+            echo "==> Checking persistent PDF storage"
+            mkdir -p /opt/apps/rashi-kapoor/lookbook-maker-storage/pdfs
+            test -w /opt/apps/rashi-kapoor/lookbook-maker-storage/pdfs
+
             echo "==> Fetching latest code"
             git fetch origin main
             git reset --hard origin/main

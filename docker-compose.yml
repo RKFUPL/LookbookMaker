@@ -10,6 +10,9 @@ services:
     environment:
       APP_URL: https://lookbook.physihome.shop
       PORT: "10000"
+      LOOKBOOK_STORAGE_DIR: /data/lookbooks
+    volumes:
+      - ${LOOKBOOK_STORAGE_HOST_DIR:-/opt/apps/rashi-kapoor/lookbook-maker-storage/pdfs}:/data/lookbooks
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:10000/api/health/storage"]
       interval: 30s
@@ -26,3 +29,6 @@ services:
     environment:
       APP_URL: https://lookbook.physihome.shop
       PORT: "10000"
+      LOOKBOOK_STORAGE_DIR: /data/lookbooks
+    volumes:
+      - ${LOOKBOOK_STORAGE_HOST_DIR:-/opt/apps/rashi-kapoor/lookbook-maker-storage/pdfs}:/data/lookbooks

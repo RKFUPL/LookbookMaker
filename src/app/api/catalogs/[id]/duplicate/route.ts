@@ -7,6 +7,7 @@ import { uniqueSlug } from "@/lib/slug";
 import { serializeCatalog } from "@/lib/catalog-serializer";
 import { Catalog } from "@/models/Catalog";
 import { normalizeCatalogSource } from "@/lib/catalog-source";
+import { copyLocalPdf, removeLocalPdf } from "@/lib/local-pdf-storage";
 
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -17,23 +18,47 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     const source = await Catalog.findById(id);
     if (!source) throw new ApiError(404, "Catalog not found.");
     const resolvedSource = await normalizeCatalogSource(source);
-    const duplicate = await Catalog.create({
-      title: `${source.title} — Copy`,
-      slug: await uniqueSlug(`${source.title} copy`),
-      collectionName: source.collectionName,
-      season: source.season,
-      description: source.description,
-      sourcePdfUrl: resolvedSource.sourcePdfUrl,
-      sourceType: "external_url",
-      status: source.status === "published" ? "imported" : source.status,
-      pageCount: source.pageCount || 0,
-      width: source.width || 0,
-      height: source.height || 0,
-      allowDownload: source.allowDownload,
-      showBackButton: source.showBackButton,
-      createdBy: staff.userId,
-      updatedBy: staff.userId,
-    });
+    const localCopy = source.sourceType === "local" && source.storageKey ? await copyLocalPdf(source.storageKey) : null;
+    let duplicate;
+    try {
+      duplicate = await Catalog.create({
+        title: `${source.title} - Copy`,
+        slug: await uniqueSlug(`${source.title} copy`),
+        collectionName: source.collectionName,
+        season: source.season,
+        description: source.description,
+        originalFilename: source.originalFilename,
+        ...(localCopy || (source.sourceType === "workdrive" ? {
+          sourcePdfUrl: "",
+          sourceType: "workdrive",
+          storageProvider: "workdrive",
+          workdriveFileId: source.workdriveFileId,
+          workdriveFileName: source.workdriveFileName,
+          workdriveFileType: source.workdriveFileType,
+          workdriveLink: source.workdriveLink,
+          workdriveFolderId: source.workdriveFolderId,
+          workdriveRootFolderId: source.workdriveRootFolderId,
+          sourceSize: source.sourceSize,
+          originalFilename: source.originalFilename,
+          uploadedAt: source.uploadedAt,
+        } : {
+          sourcePdfUrl: resolvedSource.sourcePdfUrl,
+          sourceType: "external_url",
+          storageProvider: "external_url",
+        })),
+        status: source.status === "published" ? "imported" : source.status,
+        pageCount: source.pageCount || 0,
+        width: source.width || 0,
+        height: source.height || 0,
+        allowDownload: source.allowDownload,
+        showBackButton: source.showBackButton,
+        createdBy: staff.userId,
+        updatedBy: staff.userId,
+      });
+    } catch (error) {
+      if (localCopy) await removeLocalPdf(localCopy.storageKey).catch(() => undefined);
+      throw error;
+    }
     return NextResponse.json({ catalog: await serializeCatalog(duplicate) }, { status: 201 });
   } catch (error) { return apiError(error); }
 }

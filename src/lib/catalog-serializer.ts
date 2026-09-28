@@ -19,7 +19,7 @@ function normalizedFailureCode(catalog: CatalogLike): CatalogFailureCode | null 
 }
 
 function sourceUrl(catalog: CatalogLike) {
-  if (catalog.sourceType === "workdrive") return "";
+  if (catalog.sourceType === "workdrive" || catalog.sourceType === "local") return "";
   return resolveCatalogSource(catalog as CatalogLike & Record<string, unknown>).sourcePdfUrl;
 }
 
@@ -36,14 +36,16 @@ export async function serializeCatalog(catalog: CatalogLike): Promise<CatalogDto
     pageCount: catalog.pageCount || 0,
     width: catalog.width || 0,
     height: catalog.height || 0,
-    processingProgress: catalog.pageCount ? 100 : 0,
+    processingProgress: catalog.processingProgress ?? 0,
     processingMessage: "External PDF mode — pages load in the browser.",
     processingError: catalog.processingError || "",
     failureCode: normalizedFailureCode(catalog),
     failureDetail: catalog.failureDetail || "",
     coverImageUrl: null,
     sourcePdfUrl: pdfUrl,
-    sourceType: catalog.sourceType === "workdrive" ? "workdrive" : "external_url",
+    sourceType: catalog.sourceType === "local" ? "local" : catalog.sourceType === "workdrive" ? "workdrive" : "external_url",
+    storageProvider: catalog.storageProvider || (catalog.sourceType === "local" ? "local" : catalog.sourceType === "workdrive" ? "workdrive" : "external_url"),
+    storageKeyPresent: Boolean(catalog.storageKey),
     workdriveFileId: catalog.workdriveFileId || "",
     workdriveFileName: catalog.workdriveFileName || "",
     workdriveFolderId: catalog.workdriveFolderId || "",
@@ -74,7 +76,7 @@ export async function serializePublicCatalog(catalog: CatalogLike): Promise<Publ
     width: catalog.width || 0,
     height: catalog.height || 0,
     sourcePdfUrl: sourceUrl(catalog),
-    sourceType: catalog.sourceType === "workdrive" ? "workdrive" : "external_url",
+    sourceType: catalog.sourceType === "local" ? "local" : catalog.sourceType === "workdrive" ? "workdrive" : "external_url",
     publicUrl: catalogPublicPath(catalog.slug),
     downloadUrl: catalog.allowDownload ? `/api/catalogs/${encodeURIComponent(catalog.slug)}/download` : null,
     settings: { allowDownload: catalog.allowDownload, showBackButton: catalog.showBackButton },

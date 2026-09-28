@@ -8,6 +8,8 @@ import { normalizeCatalogSource } from "@/lib/catalog-source";
 import { preparePdfResponse } from "@/lib/pdf-response";
 import { downloadWorkDrivePdf } from "@/lib/workdrive";
 import { canAccessCatalogPdf } from "@/lib/catalog-availability";
+import { localPdfResponse } from "@/lib/local-pdf-storage";
+import { ApiError } from "@/lib/http";
 
 const MAX_REDIRECTS = 5;
 const FORWARDED_REQUEST_HEADERS = ["range", "if-range", "if-none-match", "if-modified-since"] as const;
@@ -45,7 +47,7 @@ async function fetchSource(url: string, request: Request) {
   throw new Error("The PDF source redirected too many times.");
 }
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function servePdf(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     await connectDb();
     const id = (await params).id;
@@ -54,12 +56,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const catalog = await Catalog.findById(id);
     if (!catalog) return errorResponse(404, "Catalog not found.");
     const source = await normalizeCatalogSource(catalog);
-    if (catalog.sourceType !== "workdrive" && !source.sourcePdfUrl) return errorResponse(422, "Catalog has no source PDF configured.", "SOURCE_MISSING");
+    if (catalog.sourceType === "local" && !catalog.storageKey) return errorResponse(422, "Catalog has no local PDF configured.", "SOURCE_MISSING");
+    if (catalog.sourceType !== "workdrive" && catalog.sourceType !== "local" && !source.sourcePdfUrl) return errorResponse(422, "Catalog has no source PDF configured.", "SOURCE_MISSING");
     if (catalog.sourceType === "workdrive" && !catalog.workdriveFileId) return errorResponse(422, "Catalog has no WorkDrive file configured.", "SOURCE_MISSING");
 
     // Published readers are public. Staff preview may proxy imported/draft files.
     const hasStaffSession = catalog.status === "published" ? false : Boolean(await getStaffSession());
     if (!canAccessCatalogPdf(String(catalog.status), hasStaffSession)) return errorResponse(404, "Catalog not found.");
+
+    if (catalog.sourceType === "local") {
+      const download = new URL(request.url).searchParams.get("download") === "1";
+      return await localPdfResponse(catalog.storageKey!, request, download ? `${catalog.slug}.pdf` : undefined);
+    }
 
     let upstream: Response;
     try {
@@ -99,7 +107,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     responseHeaders.set("vary", "Range");
     return new Response(prepared.body, { status: upstream.status, headers: responseHeaders });
   } catch (error) {
+    if (error instanceof ApiError) return errorResponse(error.status, error.message, error.code);
     console.error("Source PDF proxy error:", error);
     return errorResponse(502);
   }
 }
+
+export const GET = servePdf;
+export const HEAD = servePdf;

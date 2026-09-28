@@ -15,6 +15,7 @@ async function main() {
   await validateUpload(new File(["%PDF-1.7\nbody"], "sample.pdf", { type: "application/pdf" }), 1000);
   assert.ok(catalogCreateSchema.parse({ title: "Uploaded catalog", collection: "Summer" }));
   assert.equal(catalogHasPdf({ sourceType: "workdrive", workdriveFileId: "workdrive-file", sourcePdfUrl: "" }), true);
+  assert.equal(catalogHasPdf({ sourceType: "local", storageKey: "lookbooks/2026/09/file.pdf", sourcePdfUrl: "" }), true);
   assert.equal(catalogHasPdf({ sourceType: "external_url", workdriveFileId: "", sourcePdfUrl: "" }), false);
   assert.equal(canAccessCatalogPdf("published", false), true, "published PDFs must be publicly readable");
   assert.equal(canAccessCatalogPdf("draft", false), false, "draft PDFs must reject anonymous readers");

@@ -5,6 +5,8 @@ const serverSchema = z.object({
   AUTH_SECRET: z.string().min(32),
   APP_URL: z.string().url().optional().or(z.literal("")),
   SESSION_TTL_HOURS: z.coerce.number().positive().max(168).default(12),
+  LOOKBOOK_STORAGE_DIR: z.string().trim().optional(),
+  LOOKBOOK_MAX_UPLOAD_MB: z.coerce.number().positive().max(250).default(100),
   ZOHO_WORKDRIVE_API_BASE_URL: z.string().url().default("https://www.zohoapis.in"),
   ZOHO_WORKDRIVE_UPLOAD_BASE_URL: z.string().url().default("https://upload.zoho.in"),
   ZOHO_WORKDRIVE_DOWNLOAD_BASE_URL: z.string().url().default("https://download.zoho.in"),
