@@ -44,6 +44,7 @@ export async function POST(request: Request) {
   try {
     const staff = await requireStaff();
     const input = catalogCreateSchema.parse(await readJson(request));
+    if (!input.pdfUrl) throw new ApiError(400, "Upload a PDF file to create a catalog.", "PDF_UPLOAD_REQUIRED");
     try {
       await assertSafeRemoteUrl(input.pdfUrl);
     } catch {

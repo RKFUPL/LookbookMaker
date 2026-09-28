@@ -12,6 +12,7 @@ export type PublicCatalogDto = {
   width: number;
   height: number;
   sourcePdfUrl: string;
+  sourceType: "external_url" | "workdrive";
   publicUrl: string;
   downloadUrl: string | null;
   settings: {

@@ -90,6 +90,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   const [pageInput, setPageInput] = useState(String(requestedPage()));
   const [retryKey, setRetryKey] = useState(0);
   const [resolvedCatalogId, setResolvedCatalogId] = useState<string | null>(null);
+  const [resolvedPdfUrl, setResolvedPdfUrl] = useState<string | null>(null);
   const [sourceMissing, setSourceMissing] = useState(false);
 
   const shellRef = useRef<HTMLDivElement>(null);
@@ -146,6 +147,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     const controller = new AbortController();
     const slug = catalog.slug.toLowerCase();
     setResolvedCatalogId(null);
+    setResolvedPdfUrl(null);
     setSourceMissing(false);
     setPdf(null);
     setPageCount(0);
@@ -161,7 +163,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     setLoadError("");
     setLoading(true);
     if (preview) {
-      if (!catalog.sourcePdfUrl) {
+      if (catalog.sourceType === "external_url" && !catalog.sourcePdfUrl) {
         setSourceMissing(true);
         setLoading(false);
         setLoadError("Lookbook source PDF is not configured.");
@@ -169,6 +171,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         return () => controller.abort();
       }
       setResolvedCatalogId(catalog.id);
+      setResolvedPdfUrl(catalog.sourceType === "workdrive" ? `/api/catalogs/${catalog.id}/pdf` : catalog.sourcePdfUrl);
       catalogLog({ slug, resolvedCatalogId: catalog.id, sourcePdfUrlPresent: true, pdfProxyUrl: `/api/catalogs/${catalog.id}/pdf` });
       return () => controller.abort();
     }
@@ -184,7 +187,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         if (!response.ok || !payload.catalog?.id) throw new Error(payload.error || "Catalog source could not be found.");
         const current = payload.catalog;
         if (current.slug !== slug) throw new Error("Catalog source could not be found.");
-        if (!current.sourcePdfUrl) {
+        if (current.sourceType === "external_url" && !current.sourcePdfUrl) {
           setSourceMissing(true);
           setLoading(false);
           setLoadError("Lookbook source PDF is not configured.");
@@ -192,6 +195,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
           return;
         }
         setResolvedCatalogId(current.id);
+        setResolvedPdfUrl(current.sourceType === "workdrive" ? `/api/catalogs/${current.id}/pdf` : current.sourcePdfUrl);
         catalogLog({
           slug,
           resolvedCatalogId: current.id,
@@ -207,7 +211,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     })();
     /* eslint-enable react-hooks/set-state-in-effect */
     return () => controller.abort();
-  }, [catalog.id, catalog.slug, catalog.sourcePdfUrl, clearCache, preview]);
+  }, [catalog.id, catalog.slug, catalog.sourcePdfUrl, catalog.sourceType, clearCache, preview]);
 
   const getPage = useCallback(async (pageNumber: number) => {
     if (!pdf) throw new Error("PDF is not ready.");
@@ -360,10 +364,10 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
   useEffect(() => { hydrateRef.current = hydrateWindow; }, [hydrateWindow]);
 
   useEffect(() => {
-    if (!resolvedCatalogId || sourceMissing) return;
+    if (!resolvedCatalogId || !resolvedPdfUrl || sourceMissing) return;
     const catalogId = resolvedCatalogId;
-    const pdfProxyUrl = `/api/catalogs/${catalogId}/pdf`;
-    const loadKey = `${catalogId}:${retryKey}`;
+    const pdfSourceUrl = resolvedPdfUrl;
+    const loadKey = `${catalogId}:${pdfSourceUrl}:${retryKey}`;
     const lifecycle = loadLifecycleRef.current + 1;
     loadLifecycleRef.current = lifecycle;
     let cancelled = false;
@@ -398,8 +402,8 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     void (async () => {
       try {
         if (!entry || entry.key !== loadKey) {
-          pdfLog("PDF LOAD START", { catalogId, url: pdfProxyUrl });
-          pdfLog("START DOCUMENT LOAD", { catalogId, url: pdfProxyUrl });
+          pdfLog("PDF LOAD START", { catalogId, url: pdfSourceUrl });
+          pdfLog("START DOCUMENT LOAD", { catalogId, url: pdfSourceUrl });
           const nextEntry = { key: loadKey, task: null, cancelled: false } as PdfLoadEntry;
           nextEntry.promise = (async () => {
             const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist");
@@ -408,7 +412,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
             pdfLog("PDF WORKER READY", { workerSrc });
             // Preview PDFs can be imported/draft catalogs. Keep the same-origin
             // session cookie on range requests so the proxy can authorize them.
-            const task = getDocument({ url: pdfProxyUrl, rangeChunkSize: 65536, disableAutoFetch: false, disableStream: false, withCredentials: true });
+            const task = getDocument({ url: pdfSourceUrl, rangeChunkSize: 65536, disableAutoFetch: false, disableStream: false, withCredentials: true });
             nextEntry.task = task;
             if (nextEntry.cancelled) {
               await task.destroy();
@@ -437,7 +441,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         setPdfStage("error");
         setLoadError(pdfViewerErrorMessage(error, PDF_ERROR));
         if (process.env.NODE_ENV !== "production") setLoadDiagnostic(error instanceof Error ? error.message : String(error));
-        pdfLog("PDF LOAD ERROR", { catalogId, url: pdfProxyUrl }, error);
+        pdfLog("PDF LOAD ERROR", { catalogId, url: pdfSourceUrl }, error);
       }
     })();
     return () => {
@@ -457,7 +461,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         dimensions.clear();
       }, 0);
     };
-  }, [clearCache, resolvedCatalogId, retryKey, sourceMissing]);
+  }, [clearCache, resolvedCatalogId, resolvedPdfUrl, retryKey, sourceMissing]);
 
   useEffect(() => {
     if (!pdf) return;
@@ -904,7 +908,7 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
     if (!document.fullscreenElement) await shellRef.current?.requestFullscreen(); else await document.exitFullscreen();
   }
   async function share() {
-    const url = `${catalog.publicUrl}?page=${visiblePages[0] || 1}`;
+    const url = new URL(`${catalog.publicUrl}?page=${visiblePages[0] || 1}`, window.location.origin).toString();
     try {
       if (navigator.share) await navigator.share({ title: catalog.title, text: catalog.description, url });
       else { await navigator.clipboard.writeText(url); setNotice("Link copied"); window.setTimeout(() => setNotice(""), 1800); }

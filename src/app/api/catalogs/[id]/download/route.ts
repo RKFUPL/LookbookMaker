@@ -4,6 +4,7 @@ import { apiError, ApiError } from "@/lib/http";
 import { Catalog } from "@/models/Catalog";
 import { CatalogEvent } from "@/models/CatalogEvent";
 import { normalizeCatalogSource } from "@/lib/catalog-source";
+import { catalogPdfProxyPath } from "@/lib/catalog-availability";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -19,6 +20,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       referrer: request.headers.get("referer")?.slice(0, 500),
       userAgent: request.headers.get("user-agent")?.slice(0, 500),
     }).catch(() => undefined);
-    return NextResponse.redirect(new URL(`/api/catalogs/${catalog._id}/pdf?download=1`, request.url), 307);
+    return NextResponse.redirect(new URL(catalogPdfProxyPath(String(catalog._id), true), request.url), 307);
   } catch (error) { return apiError(error); }
 }

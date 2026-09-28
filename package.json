@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test:pdf": "node --import tsx scripts/test-pdf-response.ts",
     "test:runtime": "node --import tsx scripts/test-runtime-failures.ts",
+    "test:workdrive-folders": "node --import tsx scripts/test-workdrive-folders.ts",
+    "test:workdrive-download": "node --import tsx scripts/test-workdrive-download.ts",
     "seed:admin": "node --env-file-if-exists=.env --import tsx scripts/seed-admin.ts",
     "migrate:sources": "node --env-file-if-exists=.env --import tsx scripts/migrate-catalog-sources.ts"
   },

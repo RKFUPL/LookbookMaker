@@ -8,6 +8,7 @@ import { validateUpload } from "@/lib/pdf-upload";
 import { uploadWorkDrivePdf } from "@/lib/workdrive";
 import { Catalog } from "@/models/Catalog";
 import { serializeCatalog } from "@/lib/catalog-serializer";
+import { workDriveCatalogMetadata } from "@/lib/workdrive-catalog";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -22,16 +23,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!(file instanceof File)) throw new ApiError(400, "Choose a PDF file.", "PDF_REQUIRED");
     await validateUpload(file, getConfig().ZOHO_WORKDRIVE_MAX_UPLOAD_MB * 1024 * 1024);
     const uploaded = await uploadWorkDrivePdf(file, catalog.collectionName, catalog.title);
-    catalog.sourceType = "workdrive";
-    catalog.sourcePdfUrl = "";
-    catalog.workdriveFileId = uploaded.id;
-    catalog.workdriveFileName = uploaded.name;
-    catalog.workdriveFolderId = uploaded.folderId;
-    catalog.workdriveRootFolderId = uploaded.rootFolderId;
-    catalog.sourceSize = uploaded.size;
-    catalog.originalFilename = file.name;
-    catalog.uploadedAt = new Date();
-    catalog.uploadedBy = staff.userId;
+    Object.assign(catalog, workDriveCatalogMetadata(uploaded, file.name, staff.userId));
     catalog.status = "imported";
     catalog.processingProgress = 100;
     catalog.processingMessage = "WorkDrive PDF mode — pages load through the server.";

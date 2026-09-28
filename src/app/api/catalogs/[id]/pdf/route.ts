@@ -7,6 +7,7 @@ import { assertSafeRemoteUrl } from "@/lib/remote-source";
 import { normalizeCatalogSource } from "@/lib/catalog-source";
 import { preparePdfResponse } from "@/lib/pdf-response";
 import { downloadWorkDrivePdf } from "@/lib/workdrive";
+import { canAccessCatalogPdf } from "@/lib/catalog-availability";
 
 const MAX_REDIRECTS = 5;
 const FORWARDED_REQUEST_HEADERS = ["range", "if-range", "if-none-match", "if-modified-since"] as const;
@@ -14,6 +15,13 @@ const FORWARDED_RESPONSE_HEADERS = ["content-type", "content-length", "content-r
 
 function errorResponse(status: number, message = "Unable to load the source PDF.", code?: string) {
   return NextResponse.json({ error: message, ...(code ? { code } : {}) }, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+async function workDriveErrorResponse(response: Response) {
+  const body = await response.json().catch(() => null) as { providerCode?: string; providerMessage?: string } | null;
+  const detail = body?.providerMessage || "WorkDrive returned no diagnostic response body.";
+  const providerCode = body?.providerCode ? ` [${body.providerCode}]` : "";
+  return errorResponse(response.status, `WorkDrive PDF download failed (HTTP ${response.status}): ${detail}${providerCode}`, "WORKDRIVE_DOWNLOAD_FAILED");
 }
 
 async function fetchSource(url: string, request: Request) {
@@ -50,7 +58,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     if (catalog.sourceType === "workdrive" && !catalog.workdriveFileId) return errorResponse(422, "Catalog has no WorkDrive file configured.", "SOURCE_MISSING");
 
     // Published readers are public. Staff preview may proxy imported/draft files.
-    if (catalog.status !== "published" && !(await getStaffSession())) return errorResponse(404, "Catalog not found.");
+    const hasStaffSession = catalog.status === "published" ? false : Boolean(await getStaffSession());
+    if (!canAccessCatalogPdf(String(catalog.status), hasStaffSession)) return errorResponse(404, "Catalog not found.");
 
     let upstream: Response;
     try {
@@ -63,6 +72,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       return errorResponse(502);
     }
     if (!upstream.ok && upstream.status !== 206 && upstream.status !== 304) {
+      if (catalog.sourceType === "workdrive") return workDriveErrorResponse(upstream);
       return errorResponse(upstream.status >= 400 && upstream.status < 500 ? upstream.status : 502);
     }
     const prepared = upstream.status === 304 ? { valid: true, body: null } : await preparePdfResponse(upstream);

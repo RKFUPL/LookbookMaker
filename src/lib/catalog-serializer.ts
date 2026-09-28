@@ -1,7 +1,7 @@
 import type { ICatalog } from "@/models/Catalog";
-import { appUrl } from "@/lib/config";
 import { resolveCatalogSource } from "@/lib/catalog-source";
 import type { CatalogDto, CatalogFailureCode, CatalogStatus, PublicCatalogDto } from "@/types/catalog";
+import { catalogPublicPath } from "@/lib/catalog-availability";
 
 type CatalogLike = ICatalog & { _id: unknown; createdAt: Date; updatedAt: Date };
 
@@ -54,8 +54,8 @@ export async function serializeCatalog(catalog: CatalogLike): Promise<CatalogDto
     allowDownload: catalog.allowDownload,
     showBackButton: catalog.showBackButton,
     views: catalog.views || 0,
-    publicUrl: `${appUrl()}/catalog/${catalog.slug}`,
-    downloadUrl: catalog.allowDownload ? `${appUrl()}/api/catalogs/${catalog.slug}/download` : null,
+    publicUrl: catalogPublicPath(catalog.slug),
+    downloadUrl: catalog.allowDownload ? `/api/catalogs/${encodeURIComponent(catalog.slug)}/download` : null,
     createdAt: catalog.createdAt.toISOString(),
     updatedAt: catalog.updatedAt.toISOString(),
     publishedAt: catalog.publishedAt?.toISOString() || null,
@@ -74,8 +74,9 @@ export async function serializePublicCatalog(catalog: CatalogLike): Promise<Publ
     width: catalog.width || 0,
     height: catalog.height || 0,
     sourcePdfUrl: sourceUrl(catalog),
-    publicUrl: `${appUrl()}/catalog/${catalog.slug}`,
-    downloadUrl: catalog.allowDownload ? `${appUrl()}/api/catalogs/${catalog.slug}/download` : null,
+    sourceType: catalog.sourceType === "workdrive" ? "workdrive" : "external_url",
+    publicUrl: catalogPublicPath(catalog.slug),
+    downloadUrl: catalog.allowDownload ? `/api/catalogs/${encodeURIComponent(catalog.slug)}/download` : null,
     settings: { allowDownload: catalog.allowDownload, showBackButton: catalog.showBackButton },
   };
 }
