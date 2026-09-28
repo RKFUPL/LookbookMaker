@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3002",
     "build": "next build",
     "start": "next start",
     "start:render": "node --import tsx scripts/render-start.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test:pdf": "node --import tsx scripts/test-pdf-response.ts",
+    "test:runtime": "node --import tsx scripts/test-runtime-failures.ts",
     "seed:admin": "node --env-file-if-exists=.env --import tsx scripts/seed-admin.ts",
     "migrate:sources": "node --env-file-if-exists=.env --import tsx scripts/migrate-catalog-sources.ts"
   },

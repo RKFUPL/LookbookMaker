@@ -12,7 +12,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const catalog = await Catalog.findOne({ slug, status: "published", allowDownload: true });
     if (!catalog) throw new ApiError(404, "Download is unavailable.");
     const source = await normalizeCatalogSource(catalog);
-    if (!source.sourcePdfUrl) throw new ApiError(404, "Download is unavailable.");
+    if (catalog.sourceType !== "workdrive" && !source.sourcePdfUrl) throw new ApiError(404, "Download is unavailable.");
     await CatalogEvent.create({
       catalogId: catalog._id,
       type: "download",

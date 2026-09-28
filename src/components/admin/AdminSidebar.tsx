@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Archive, BookOpen, FileClock, LayoutGrid, Plus, Send } from "lucide-react";
+import { Archive, BookOpen, FileClock, LayoutGrid, Plus, Send, Settings } from "lucide-react";
 import { Brand } from "@/components/Brand";
 import type { StaffSession } from "@/lib/auth";
 
@@ -12,6 +12,7 @@ const links = [
   { href: "/admin?status=draft", label: "Drafts", icon: FileClock, status: "draft" },
   { href: "/admin?status=published", label: "Published", icon: Send, status: "published" },
   { href: "/admin?status=archived", label: "Archived", icon: Archive, status: "archived" },
+  { href: "/admin/settings/workdrive", label: "WorkDrive", icon: Settings, status: null },
 ];
 
 export function AdminSidebar({ user }: { user: StaffSession }) {

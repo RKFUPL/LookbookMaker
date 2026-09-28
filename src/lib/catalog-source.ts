@@ -40,6 +40,7 @@ export function resolveCatalogSource(catalog: CatalogSourceRecord): ResolvedCata
 /** Persist a legacy value when a hydrated Mongoose document is available. */
 export async function normalizeCatalogSource(catalog: CatalogSourceRecord) {
   const resolved = resolveCatalogSource(catalog);
+  if (catalog.sourceType === "workdrive") return { sourcePdfUrl: "", field: null };
   if (resolved.sourcePdfUrl && resolved.field !== "sourcePdfUrl" && typeof catalog.save === "function") {
     catalog.sourcePdfUrl = resolved.sourcePdfUrl;
     catalog.sourceType = "external_url";

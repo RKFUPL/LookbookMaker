@@ -19,6 +19,7 @@ function normalizedFailureCode(catalog: CatalogLike): CatalogFailureCode | null 
 }
 
 function sourceUrl(catalog: CatalogLike) {
+  if (catalog.sourceType === "workdrive") return "";
   return resolveCatalogSource(catalog as CatalogLike & Record<string, unknown>).sourcePdfUrl;
 }
 
@@ -42,7 +43,12 @@ export async function serializeCatalog(catalog: CatalogLike): Promise<CatalogDto
     failureDetail: catalog.failureDetail || "",
     coverImageUrl: null,
     sourcePdfUrl: pdfUrl,
-    sourceType: "external_url",
+    sourceType: catalog.sourceType === "workdrive" ? "workdrive" : "external_url",
+    workdriveFileId: catalog.workdriveFileId || "",
+    workdriveFileName: catalog.workdriveFileName || "",
+    workdriveFolderId: catalog.workdriveFolderId || "",
+    workdriveRootFolderId: catalog.workdriveRootFolderId || "",
+    uploadedAt: catalog.uploadedAt?.toISOString() || null,
     originalFilename: catalog.originalFilename || "",
     sourceSize: catalog.sourceSize || 0,
     allowDownload: catalog.allowDownload,

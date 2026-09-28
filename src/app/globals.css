@@ -102,6 +102,26 @@ a { color: inherit; text-decoration: none; }
 .page-heading h1 { font: 400 clamp(42px, 5vw, 68px)/1 "Bodoni 72", Didot, serif; margin: 5px 0 0; }
 .page-heading p { color: var(--muted); margin: 10px 0 0; }
 
+.workdrive-settings { max-width: 1050px; }
+.workdrive-heading { align-items: center; }
+.workdrive-heading-mark { width: 58px; height: 58px; display: grid; place-items: center; color: var(--gold); border: 1px solid #d6c8ad; background: rgba(255,254,251,.55); }
+.workdrive-card { max-width: 860px; padding: clamp(24px, 4vw, 42px); background: var(--surface); border: 1px solid var(--line); box-shadow: 0 20px 55px rgba(39,31,24,.06); }
+.workdrive-card-top { display: flex; align-items: center; gap: 14px; }
+.workdrive-card-top .eyebrow, .workdrive-config .eyebrow { color: var(--gold); margin: 0 0 5px; }
+.workdrive-card h2, .workdrive-config h2 { font: 400 31px/1.05 "Bodoni 72", Didot, serif; margin: 0; }
+.workdrive-icon { width: 44px; height: 44px; display: grid; place-items: center; color: var(--wine); border: 1px solid #d7c7b2; background: #f7f0e7; }
+.workdrive-badge { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid var(--line); font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
+.workdrive-badge-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.workdrive-badge.is-connected { color: var(--success); border-color: #b9d0bf; background: #f1f8f2; }.workdrive-badge.is-connected .workdrive-badge-dot { background: var(--success); }
+.workdrive-badge.is-error { color: var(--danger); border-color: #e2c0bd; background: #fff6f5; }.workdrive-badge.is-error .workdrive-badge-dot { background: var(--danger); }
+.workdrive-badge.is-loading { color: var(--muted); }
+.workdrive-divider { height: 1px; background: var(--line); margin: 30px 0 26px; }
+.workdrive-status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.workdrive-label { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; margin: 0 0 10px; }.workdrive-status-value, .workdrive-folder { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; }.workdrive-status-value.is-positive { color: var(--success); }.workdrive-status-value.is-negative { color: var(--danger); }.workdrive-folder svg { color: var(--gold); }.workdrive-folder code { color: var(--muted); font-size: 11px; margin-left: 3px; }
+.workdrive-notice { display: flex; align-items: flex-start; gap: 9px; margin-top: 25px; padding: 13px 15px; border: 1px solid; font-size: 13px; line-height: 1.5; }.workdrive-notice.success { color: var(--success); border-color: #c5d8c9; background: #f5faf5; }.workdrive-notice.error { color: var(--danger); border-color: #e5c6c3; background: #fff8f7; }
+.workdrive-actions { display: flex; gap: 10px; margin-top: 30px; }.workdrive-actions .btn:focus-visible, .workdrive-config summary:focus-visible { outline: 3px solid rgba(161,123,71,.3); outline-offset: 3px; }.workdrive-spin { animation: spin .8s linear infinite; }
+.workdrive-config { max-width: 860px; display: grid; grid-template-columns: 1.1fr .9fr; gap: 34px; margin-top: 25px; padding: 27px clamp(24px, 4vw, 38px); border: 1px solid var(--line); background: rgba(255,254,251,.45); }.workdrive-config p:not(.eyebrow) { color: var(--muted); font-size: 13px; line-height: 1.65; margin: 12px 0 0; }.workdrive-config details { align-self: start; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }.workdrive-config summary { display: flex; align-items: center; justify-content: space-between; gap: 15px; min-height: 47px; cursor: pointer; list-style: none; font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }.workdrive-config summary::-webkit-details-marker { display: none; }.workdrive-config summary svg { transition: transform .2s; }.workdrive-config details[open] summary svg { transform: rotate(180deg); }.workdrive-help { display: grid; gap: 8px; padding: 0 0 16px; }.workdrive-help code { color: var(--wine); font-size: 11px; overflow-wrap: anywhere; }.workdrive-help p { font-size: 11px !important; margin-top: 5px !important; }
+
 .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 28px; }
 .stat { background: var(--surface); padding: 20px 22px; }
 .stat-label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .17em; }
@@ -192,6 +212,7 @@ a { color: inherit; text-decoration: none; }
   .form-grid .wide { grid-column: auto; }
   .stats-row { grid-template-columns: 1fr 1fr; }
   .admin-content { padding: 24px 16px; }
+  .workdrive-heading-mark { display: none; }.workdrive-card-top { align-items: flex-start; flex-wrap: wrap; }.workdrive-badge { margin-left: 0; width: 100%; justify-content: center; }.workdrive-status-grid, .workdrive-config { grid-template-columns: 1fr; }.workdrive-actions { flex-direction: column; }.workdrive-actions .btn { width: 100%; }
 }
 
 /* Premium public flipbook reader */

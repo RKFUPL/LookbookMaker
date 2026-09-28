@@ -38,7 +38,12 @@ export type CatalogDto = {
   failureDetail: string;
   coverImageUrl: null;
   sourcePdfUrl: string;
-  sourceType: "external_url";
+  sourceType: "external_url" | "workdrive";
+  workdriveFileId: string;
+  workdriveFileName: string;
+  workdriveFolderId: string;
+  workdriveRootFolderId: string;
+  uploadedAt: string | null;
   originalFilename: string;
   sourceSize: number;
   allowDownload: boolean;

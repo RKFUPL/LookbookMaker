@@ -16,7 +16,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
   const document = await Catalog.findById(id);
   if (!document) notFound();
   const source = await normalizeCatalogSource(document);
-  if (!source.sourcePdfUrl) notFound();
+  if (document.sourceType !== "workdrive" && !source.sourcePdfUrl) notFound();
   const catalog = await serializePublicCatalog(document);
   return <CatalogViewer catalog={catalog} preview />;
 }

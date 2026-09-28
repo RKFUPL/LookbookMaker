@@ -5,6 +5,8 @@ import { connectDb } from "@/lib/db";
 import { Catalog } from "@/models/Catalog";
 import { assertSafeRemoteUrl } from "@/lib/remote-source";
 import { normalizeCatalogSource } from "@/lib/catalog-source";
+import { preparePdfResponse } from "@/lib/pdf-response";
+import { downloadWorkDrivePdf } from "@/lib/workdrive";
 
 const MAX_REDIRECTS = 5;
 const FORWARDED_REQUEST_HEADERS = ["range", "if-range", "if-none-match", "if-modified-since"] as const;
@@ -23,7 +25,7 @@ async function fetchSource(url: string, request: Request) {
   }
 
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
-    const response = await fetch(currentUrl, { headers, redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(120_000) });
+    const response = await fetch(currentUrl, { headers, redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(30_000) });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
       if (!location || redirect === MAX_REDIRECTS) throw new Error("The PDF source redirected too many times.");
@@ -44,20 +46,31 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const catalog = await Catalog.findById(id);
     if (!catalog) return errorResponse(404, "Catalog not found.");
     const source = await normalizeCatalogSource(catalog);
-    if (!source.sourcePdfUrl) return errorResponse(422, "Catalog has no source PDF URL configured.", "SOURCE_MISSING");
+    if (catalog.sourceType !== "workdrive" && !source.sourcePdfUrl) return errorResponse(422, "Catalog has no source PDF configured.", "SOURCE_MISSING");
+    if (catalog.sourceType === "workdrive" && !catalog.workdriveFileId) return errorResponse(422, "Catalog has no WorkDrive file configured.", "SOURCE_MISSING");
 
     // Published readers are public. Staff preview may proxy imported/draft files.
     if (catalog.status !== "published" && !(await getStaffSession())) return errorResponse(404, "Catalog not found.");
 
     let upstream: Response;
     try {
-      upstream = await fetchSource(source.sourcePdfUrl, request);
+      upstream = catalog.sourceType === "workdrive"
+        ? await downloadWorkDrivePdf(catalog.workdriveFileId!, request)
+        : await fetchSource(source.sourcePdfUrl, request);
     } catch (error) {
-      console.error("Source PDF proxy fetch failed:", error);
+      const reason = error instanceof Error ? error.name : "UnknownError";
+      console.error(`Source PDF proxy fetch failed (${reason}).`);
       return errorResponse(502);
     }
     if (!upstream.ok && upstream.status !== 206 && upstream.status !== 304) {
       return errorResponse(upstream.status >= 400 && upstream.status < 500 ? upstream.status : 502);
+    }
+    const prepared = upstream.status === 304 ? { valid: true, body: null } : await preparePdfResponse(upstream);
+    if (!prepared.valid) {
+      console.error(
+        `Source PDF proxy received a non-PDF response: status=${upstream.status}, content-type=${upstream.headers.get("content-type") || "missing"}, content-range=${upstream.headers.get("content-range") || "missing"}.`,
+      );
+      return errorResponse(502, "The configured source did not return a valid PDF.", "INVALID_PDF_SOURCE");
     }
 
     const responseHeaders = new Headers();
@@ -65,13 +78,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       const value = upstream.headers.get(name);
       if (value) responseHeaders.set(name, value);
     }
+    // fetch() transparently decodes compressed upstream bodies. Do not leave
+    // a compressed Content-Length attached to the decoded response.
+    if (upstream.headers.has("content-encoding")) responseHeaders.delete("content-length");
     if (!responseHeaders.has("content-type")) responseHeaders.set("content-type", "application/pdf");
     if (new URL(request.url).searchParams.get("download") === "1") {
       responseHeaders.set("content-disposition", `attachment; filename="${catalog.slug}.pdf"`);
     }
     responseHeaders.set("cache-control", "public, max-age=300, s-maxage=300, stale-while-revalidate=86400");
     responseHeaders.set("vary", "Range");
-    return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+    return new Response(prepared.body, { status: upstream.status, headers: responseHeaders });
   } catch (error) {
     console.error("Source PDF proxy error:", error);
     return errorResponse(502);

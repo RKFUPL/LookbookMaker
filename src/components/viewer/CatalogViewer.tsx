@@ -6,12 +6,13 @@ import type { PageFlip as PageFlipInstance, PageFlipOrientation } from "page-fli
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import type { PublicCatalogDto } from "@/types/catalog";
 import { Brand } from "@/components/Brand";
+import { withTimeout } from "@/lib/async-timeout";
+import { pdfViewerErrorMessage } from "@/lib/pdf-viewer-error";
 
 const MAX_ZOOM = 3;
 const MAX_CACHE = 12;
 const PDF_ERROR = "Unable to load this lookbook.";
 const PAGE_ERROR = "Unable to render page 1.";
-const WORKER_ERROR = "PDF viewer failed to initialize.";
 type PdfStage = "idle" | "loading-document" | "document-ready" | "loading-page" | "rendering-page" | "rendered" | "error";
 type ViewerState = "loading" | "cover-ready" | "reader-ready" | "error";
 type BookState = "cover" | "opening" | "spread" | "closing" | "back-cover";
@@ -42,12 +43,6 @@ function disposePdfDocument(document: PDFDocumentProxy | null) {
 function disposeLoadingTask(task: PDFDocumentLoadingTask | null) {
   if (task) void task.destroy().catch((error) => pdfLog("PDF LOAD ERROR", { phase: "destroy" }, error));
 }
-function userFacingPdfError(error: unknown, fallback = PDF_ERROR) {
-  const message = error instanceof Error ? error.message : String(error);
-  if (/\b404\b|not found|source could not be found|source pdf url configured/i.test(message)) return "Catalog source could not be found.";
-  return /worker/i.test(message) ? WORKER_ERROR : fallback;
-}
-
 function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
 function requestedPage() {
   if (typeof window === "undefined") return 1;
@@ -411,13 +406,15 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
             const workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
             GlobalWorkerOptions.workerSrc = workerSrc;
             pdfLog("PDF WORKER READY", { workerSrc });
-            const task = getDocument({ url: pdfProxyUrl, rangeChunkSize: 65536, disableAutoFetch: false, disableStream: false, withCredentials: false });
+            // Preview PDFs can be imported/draft catalogs. Keep the same-origin
+            // session cookie on range requests so the proxy can authorize them.
+            const task = getDocument({ url: pdfProxyUrl, rangeChunkSize: 65536, disableAutoFetch: false, disableStream: false, withCredentials: true });
             nextEntry.task = task;
             if (nextEntry.cancelled) {
               await task.destroy();
               throw new Error("PDF load was cancelled.");
             }
-            return task.promise;
+            return withTimeout(task.promise, 45_000, "PDF metadata request timed out.");
           })();
           entry = nextEntry;
           pdfLoadRef.current = nextEntry;
@@ -434,10 +431,11 @@ export function CatalogViewer({ catalog, preview = false }: { catalog: PublicCat
         pdfLog("PDF LOAD SUCCESS", { catalogId, numPages: document.numPages });
       } catch (error) {
         if (cancelled || loadLifecycleRef.current !== lifecycle) return;
+        disposeLoadingTask(entry?.task || null);
         setLoading(false);
         setViewerState("error");
         setPdfStage("error");
-        setLoadError(userFacingPdfError(error));
+        setLoadError(pdfViewerErrorMessage(error, PDF_ERROR));
         if (process.env.NODE_ENV !== "production") setLoadDiagnostic(error instanceof Error ? error.message : String(error));
         pdfLog("PDF LOAD ERROR", { catalogId, url: pdfProxyUrl }, error);
       }

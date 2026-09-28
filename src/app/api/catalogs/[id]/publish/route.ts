@@ -16,7 +16,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     const catalog = await Catalog.findById(id);
     if (!catalog) throw new ApiError(404, "Catalog not found.");
     const source = await normalizeCatalogSource(catalog);
-    if (!["draft", "imported", "published"].includes(catalog.status) || !source.sourcePdfUrl) {
+    if (!["draft", "imported", "published"].includes(catalog.status) || (catalog.sourceType === "workdrive" ? !catalog.workdriveFileId : !source.sourcePdfUrl)) {
       throw new ApiError(409, "Add a hosted PDF URL before publishing this catalog.");
     }
     catalog.status = "published";
