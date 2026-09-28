@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Send } from "lucide-react";
 import type { CatalogDto } from "@/types/catalog";
 import { CATALOG_UPLOAD_MAX_BYTES, CATALOG_UPLOAD_MAX_MB } from "@/lib/upload-limits";
@@ -10,6 +10,7 @@ export function CatalogCreateForm() {
   const [catalog, setCatalog] = useState<CatalogDto | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const uploadRequestId = useRef("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError("");
@@ -18,6 +19,8 @@ export function CatalogCreateForm() {
       if (!(file instanceof File) || !file.size) throw new Error("Choose a PDF file to create this catalog.");
       if (file.size > CATALOG_UPLOAD_MAX_BYTES) throw new Error(`PDF uploads must be ${CATALOG_UPLOAD_MAX_MB} MB or smaller.`);
       const upload = new FormData();
+      if (!uploadRequestId.current) uploadRequestId.current = crypto.randomUUID();
+      upload.set("uploadRequestId", uploadRequestId.current);
       for (const key of ["title", "collection", "season", "description"]) upload.set(key, String(data.get(key) || ""));
       upload.set("allowDownload", data.get("allowDownload") === "on" ? "true" : "false");
       upload.set("showBackButton", data.get("showBackButton") === "on" ? "true" : "false"); upload.set("file", file);

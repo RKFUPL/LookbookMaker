@@ -8,6 +8,7 @@ export type WorkDriveResource = {
     name?: string;
     type?: string;
     download_url?: string;
+    permalink?: string;
     capabilities?: { can_read?: boolean; can_download?: boolean };
   };
 };
@@ -316,19 +317,26 @@ export async function uploadWorkDrivePdf(file: File, collection: string, display
   if (!response.ok) throw workDriveApiError("PDF upload", response.status, payload, "WORKDRIVE_UPLOAD_FAILED");
   const id = payload.raw ? createdWorkDriveId(payload.raw) || resourceId(payload.raw) : null;
   if (!id) throw new ApiError(502, `WorkDrive upload returned no file ID (HTTP ${response.status}).`, "WORKDRIVE_UPLOAD_FAILED");
-  return { id, name: filename, folderId: folder.collectionFolderId, rootFolderId: folder.rootFolderId, size: file.size };
+  const storedFile = await workDriveFile(token, value, id);
+  return {
+    id,
+    name: text(storedFile.attributes?.name) || filename,
+    fileType: text(storedFile.attributes?.type) || "pdf",
+    stableLink: text(storedFile.attributes?.permalink),
+    folderId: folder.collectionFolderId,
+    rootFolderId: folder.rootFolderId,
+    size: file.size,
+  };
 }
 
 export async function downloadWorkDrivePdf(fileId: string, request: Request) {
   const { value, token } = await accessToken();
-  const file = await workDriveFile(token, value, fileId);
-  if (file.attributes?.capabilities?.can_download === false) {
-    return Response.json({ error: "WorkDrive PDF download failed.", providerCode: "DOWNLOAD_NOT_ALLOWED", providerMessage: "The WorkDrive account is not allowed to download this file." }, { status: 403, headers: { "Cache-Control": "no-store" } });
-  }
-  let downloadUrl = trustedWorkDriveUrl(file.attributes?.download_url || `${value.ZOHO_WORKDRIVE_DOWNLOAD_BASE_URL}/v1/workdrive/download/${encodeURIComponent(fileId)}`);
+  let downloadUrl = trustedWorkDriveUrl(`${value.ZOHO_WORKDRIVE_DOWNLOAD_BASE_URL}/v1/workdrive/download/${encodeURIComponent(fileId)}`);
+  let includeAuthorization = true;
   let response: Response | null = null;
   for (let redirect = 0; redirect <= 5; redirect += 1) {
-    const headers = new Headers({ Authorization: `Zoho-oauthtoken ${token}`, Accept: "application/pdf, application/octet-stream;q=0.9" });
+    const headers = new Headers({ Accept: "application/pdf, application/octet-stream;q=0.9" });
+    if (includeAuthorization) headers.set("Authorization", `Zoho-oauthtoken ${token}`);
     for (const name of ["range", "if-range", "if-none-match", "if-modified-since"]) { const item = request.headers.get(name); if (item) headers.set(name, item); }
     try {
       response = await fetch(downloadUrl, { headers, cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(30_000) });
@@ -338,7 +346,9 @@ export async function downloadWorkDrivePdf(fileId: string, request: Request) {
     if (![301, 302, 303, 307, 308].includes(response.status)) break;
     const location = response.headers.get("location");
     if (!location || redirect === 5) throw new ApiError(502, "WorkDrive PDF download redirected too many times.", "WORKDRIVE_DOWNLOAD_REDIRECT_FAILED");
-    downloadUrl = trustedWorkDriveUrl(new URL(location, downloadUrl).toString());
+    const nextUrl = trustedWorkDriveUrl(new URL(location, downloadUrl).toString());
+    includeAuthorization = includeAuthorization && nextUrl.origin === downloadUrl.origin;
+    downloadUrl = nextUrl;
   }
   if (!response) throw new ApiError(502, "WorkDrive PDF download failed.", "WORKDRIVE_DOWNLOAD_FAILED");
   const responseType = response.headers.get("content-type")?.toLowerCase() || "";

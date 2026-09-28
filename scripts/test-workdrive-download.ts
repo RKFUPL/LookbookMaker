@@ -28,9 +28,6 @@ async function main() {
       nextToken = null;
       return response;
     }
-    if (url === "https://www.zohoapis.in/workdrive/api/v1/files/file-id") {
-      return Response.json({ data: { id: "file-id", type: "files", attributes: { type: "pdf", download_url: "https://download.zoho.in/v1/workdrive/download/file-id", capabilities: { can_read: true, can_download: true } } } });
-    }
     assert.ok(url === "https://download.zoho.in/v1/workdrive/download/file-id" || url.startsWith("https://download-accl.zoho.in/"));
     assert.ok(downloads.length, "a download response must be configured");
     const factory = downloads.shift()!;
@@ -54,7 +51,7 @@ async function main() {
     downloads = [
       () => new Response(null, { status: 302, headers: { location: "https://download-accl.zoho.in/temporary/file?signature=private" } }),
       (init) => {
-        assert.equal(new Headers(init?.headers).get("authorization"), "Zoho-oauthtoken test-access-token");
+        assert.equal(new Headers(init?.headers).get("authorization"), null, "OAuth must not be forwarded across origins");
         return new Response("%PDF-redirected", { status: 200, headers: { "content-type": "application/pdf" } });
       },
     ];

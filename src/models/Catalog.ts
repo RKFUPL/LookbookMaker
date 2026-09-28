@@ -19,12 +19,15 @@ const catalogSchema = new Schema(
     sourceType: { type: String, enum: ["external_url", "workdrive"], default: "external_url" },
     workdriveFileId: { type: String, trim: true },
     workdriveFileName: { type: String, trim: true, maxlength: 255 },
+    workdriveFileType: { type: String, trim: true, maxlength: 80 },
+    workdriveLink: { type: String, trim: true, maxlength: 2048 },
     workdriveFolderId: { type: String, trim: true },
     workdriveRootFolderId: { type: String, trim: true },
     uploadedAt: Date,
     uploadedBy: { type: Schema.Types.ObjectId, ref: "User" },
     sourceSize: Number,
     originalFilename: String,
+    uploadRequestId: { type: String, trim: true, sparse: true, index: true },
     pageCount: { type: Number, default: 0 },
     width: { type: Number, default: 0 },
     height: { type: Number, default: 0 },
@@ -46,6 +49,7 @@ const catalogSchema = new Schema(
 catalogSchema.index({ status: 1, updatedAt: -1 });
 catalogSchema.index({ collectionName: 1, season: 1 });
 catalogSchema.index({ title: "text", collectionName: "text", season: "text" });
+catalogSchema.index({ createdBy: 1, uploadRequestId: 1 }, { unique: true, sparse: true });
 
 export type ICatalog = InferSchemaType<typeof catalogSchema>;
 export const Catalog = models.Catalog || model("Catalog", catalogSchema);

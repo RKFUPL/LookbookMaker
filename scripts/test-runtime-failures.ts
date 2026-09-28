@@ -24,8 +24,8 @@ async function main() {
   assert.equal(catalogPublicPath("sandook").includes("localhost:3001"), false);
   const uploadTime = new Date("2026-09-28T00:00:00.000Z");
   assert.deepEqual(
-    workDriveCatalogMetadata({ id: "resource-id", name: "Sandook.pdf", folderId: "collection-folder", rootFolderId: "root-folder", size: 1234 }, "original.pdf", "staff-id", uploadTime),
-    { sourceType: "workdrive", sourcePdfUrl: "", workdriveFileId: "resource-id", workdriveFileName: "Sandook.pdf", workdriveFolderId: "collection-folder", workdriveRootFolderId: "root-folder", sourceSize: 1234, originalFilename: "original.pdf", uploadedAt: uploadTime, uploadedBy: "staff-id" },
+    workDriveCatalogMetadata({ id: "resource-id", name: "Sandook.pdf", fileType: "pdf", stableLink: "https://www.zohoapis.in/workdrive/file/resource-id", folderId: "collection-folder", rootFolderId: "root-folder", size: 1234 }, "original.pdf", "staff-id", uploadTime),
+    { sourceType: "workdrive", sourcePdfUrl: "", workdriveFileId: "resource-id", workdriveFileName: "Sandook.pdf", workdriveFileType: "pdf", workdriveLink: "https://www.zohoapis.in/workdrive/file/resource-id", workdriveFolderId: "collection-folder", workdriveRootFolderId: "root-folder", sourceSize: 1234, originalFilename: "original.pdf", uploadedAt: uploadTime, uploadedBy: "staff-id" },
   );
   await assert.rejects(validateUpload(new File(["<html>"], "sample.pdf", { type: "application/pdf" }), 1000), /valid PDF/);
   await assert.rejects(validateUpload(new File(["%PDF-"], "sample.txt", { type: "text/plain" }), 1000), /Only PDF/);
