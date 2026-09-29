@@ -5,6 +5,7 @@ import { connectDb } from "@/lib/db";
 import { apiError, ApiError, readJson } from "@/lib/http";
 import { Catalog } from "@/models/Catalog";
 import { CatalogEvent } from "@/models/CatalogEvent";
+import { isCatalogViewPageValid } from "@/lib/catalog-view-validation";
 
 const schema = z.object({
   type: z.enum(["view", "page_view", "share"]),
@@ -21,7 +22,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       ? await Catalog.findOne({ _id: id, status: "published" })
       : await Catalog.findOne({ slug: id.toLowerCase(), status: "published" });
     if (!catalog) throw new ApiError(404, "Catalog not found.");
-    if (input.page && input.page > catalog.pageCount) throw new ApiError(400, "Page is outside this catalog.");
+    if (!isCatalogViewPageValid(input.page, catalog.pageCount || 0)) throw new ApiError(400, "Page is outside this catalog.");
     await CatalogEvent.create({
       catalogId: catalog._id,
       ...input,

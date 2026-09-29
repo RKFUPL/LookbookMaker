@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test:pdf": "node --import tsx scripts/test-pdf-response.ts",
     "test:runtime": "node --import tsx scripts/test-runtime-failures.ts",
+    "test:catalog-view": "node --import tsx scripts/test-catalog-view.ts",
     "test:workdrive-folders": "node --import tsx scripts/test-workdrive-folders.ts",
     "test:workdrive-download": "node --import tsx scripts/test-workdrive-download.ts",
     "test:local-storage": "node --import tsx scripts/test-local-pdf-storage.ts",
