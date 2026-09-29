@@ -21,7 +21,6 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
-          script_stop: true
           script: |
             set -e
 
@@ -41,14 +40,60 @@ jobs:
             echo "==> Starting Lookbook"
             docker compose up -d
 
-            echo "==> Waiting for service"
-            sleep 10
+            echo "==> Waiting for Lookbook health"
+            healthy=false
+            for attempt in $(seq 1 30); do
+              container_status="$(docker inspect -f '{{.State.Status}}' lookbook-app 2>/dev/null || true)"
+              health_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' lookbook-app 2>/dev/null || true)"
 
-            echo "==> Checking container"
-            docker compose ps
+              echo "Health check ${attempt}/30: container=${container_status:-missing}, health=${health_status:-unavailable}"
 
-            echo "==> Checking Lookbook"
-            curl -fsSI http://127.0.0.1:3001
+              case "$container_status" in
+                exited|dead|restarting)
+                  echo "Lookbook container entered an unrecoverable state: $container_status"
+                  docker compose ps
+                  docker logs --tail 150 lookbook-app || true
+                  exit 1
+                  ;;
+              esac
+
+              if [ "$health_status" = "healthy" ]; then
+                healthy=true
+                break
+              fi
+
+              sleep 5
+            done
+
+            if [ "$healthy" != "true" ]; then
+              echo "Lookbook container did not become healthy within 150 seconds"
+              docker compose ps
+              docker logs --tail 150 lookbook-app || true
+              exit 1
+            fi
+
+            echo "==> Checking Lookbook host port"
+            port_ready=false
+            for attempt in $(seq 1 6); do
+              http_status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:3001 || true)"
+              case "$http_status" in
+                2[0-9][0-9]|3[0-9][0-9])
+                  port_ready=true
+                  echo "Lookbook responded with HTTP $http_status"
+                  break
+                  ;;
+              esac
+
+              echo "Host port check ${attempt}/6 failed (HTTP ${http_status:-no response}); retrying"
+              sleep 5
+            done
+
+            if [ "$port_ready" != "true" ]; then
+              echo "Lookbook host port 127.0.0.1:3001 did not respond successfully"
+              docker compose ps
+              docker logs --tail 150 lookbook-app || true
+              exit 1
+            fi
 
             echo ""
             echo "==> Lookbook deployment successful"
