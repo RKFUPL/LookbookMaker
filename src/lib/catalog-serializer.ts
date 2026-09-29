@@ -56,7 +56,7 @@ export async function serializeCatalog(catalog: CatalogLike): Promise<CatalogDto
     allowDownload: catalog.allowDownload,
     showBackButton: catalog.showBackButton,
     views: catalog.views || 0,
-    publicUrl: catalogPublicPath(catalog.slug),
+    publicUrl: catalogPublicPath(catalog.slug, catalog.publicUrl),
     downloadUrl: catalog.allowDownload ? `/api/catalogs/${encodeURIComponent(catalog.slug)}/download` : null,
     createdAt: catalog.createdAt.toISOString(),
     updatedAt: catalog.updatedAt.toISOString(),
@@ -77,7 +77,7 @@ export async function serializePublicCatalog(catalog: CatalogLike): Promise<Publ
     height: catalog.height || 0,
     sourcePdfUrl: sourceUrl(catalog),
     sourceType: catalog.sourceType === "local" ? "local" : catalog.sourceType === "workdrive" ? "workdrive" : "external_url",
-    publicUrl: catalogPublicPath(catalog.slug),
+    publicUrl: catalogPublicPath(catalog.slug, catalog.publicUrl),
     downloadUrl: catalog.allowDownload ? `/api/catalogs/${encodeURIComponent(catalog.slug)}/download` : null,
     settings: { allowDownload: catalog.allowDownload, showBackButton: catalog.showBackButton },
   };

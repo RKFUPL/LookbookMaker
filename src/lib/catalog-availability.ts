@@ -15,6 +15,7 @@ export function catalogPdfProxyPath(id: string, download = false) {
   return `/api/catalogs/${encodeURIComponent(id)}/pdf${download ? "?download=1" : ""}`;
 }
 
-export function catalogPublicPath(slug: string) {
+export function catalogPublicPath(slug: string, publicUrl = "") {
+  if (publicUrl.trim()) return publicUrl.trim();
   return `/catalog/${encodeURIComponent(slug)}`;
 }

@@ -20,6 +20,7 @@ async function main() {
       season: definition.season,
       description: definition.description,
       ...(source ? { sourcePdfUrl: source, sourceType: "external_url", status: "imported" } : { status: "draft" }),
+      ...(definition.publicUrl ? { publicUrl: definition.publicUrl } : {}),
       processingMessage: "External PDF mode — pages load in the browser.",
       updatedBy: staff._id,
     };
